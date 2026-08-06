@@ -1,5 +1,3 @@
-# Implementação de teste na esteira CI em 24/06/2026.
-# validação GitHub Actions - feature/ci
 name: CI
 on:
   push:

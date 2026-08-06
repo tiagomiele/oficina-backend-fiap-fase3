@@ -1,0 +1,94 @@
+openapi: 3.0.3
+info:
+  title: Oficina Authentication API
+  version: 0.1.0
+  description: Contrato inicial da autenticação serverless por CPF.
+servers:
+  - url: https://api.example.com
+paths:
+  /auth/cpf:
+    post:
+      summary: Autenticar cliente por CPF
+      operationId: authenticateByCpf
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CpfAuthenticationRequest'
+            example:
+              cpf: '52998224725'
+      responses:
+        '200':
+          description: Cliente autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Requisição inválida.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: CPF inválido, cliente inexistente ou inativo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Falha interna sem exposição de dados sensíveis.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    CpfAuthenticationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - cpf
+      properties:
+        cpf:
+          type: string
+          description: CPF com ou sem máscara.
+          pattern: '^(?:\d{11}|\d{3}\.\d{3}\.\d{3}-\d{2})$'
+    TokenResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - accessToken
+        - tokenType
+        - expiresIn
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+          example: Bearer
+        expiresIn:
+          type: integer
+          format: int64
+          description: Validade em segundos.
+          example: 900
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - requestId
+      properties:
+        code:
+          type: string
+          example: AUTHENTICATION_FAILED
+        message:
+          type: string
+          example: Não foi possível autenticar o cliente.
+        requestId:
+          type: string
+          format: uuid
