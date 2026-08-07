@@ -9,6 +9,7 @@ O README principal apresenta apenas o caminho rápido. Os detalhes técnicos e o
 - [Autenticação serverless por CPF](architecture/authentication-flow.md)
 - [Observabilidade com New Relic](architecture/observability-new-relic.md)
 - [Evolução do banco de dados](architecture/database-evolution.md)
+- [Migração da infraestrutura da Fase 2](architecture/infrastructure-migration.md)
 
 ## Contratos
 
@@ -30,6 +31,7 @@ O README principal apresenta apenas o caminho rápido. Os detalhes técnicos e o
 ## Validação
 
 - [Passo a passo da Semana 1](validation/week1.md)
+- [Passo a passo da Semana 2](validation/week2.md)
 
 ## Planejamento
 

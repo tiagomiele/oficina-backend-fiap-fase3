@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 # Deploy da aplicacao no EKS do AWS Academy usando o RDS (banco gerenciado).
 #
-# No AWS Academy o Postgres dentro do cluster NAO funciona: o driver EBS CSI
-# precisa de IRSA (role via OIDC), que o lab bloqueia, entao o PVC nunca provisiona.
-# A arquitetura correta (e a da Fase 2) usa o RDS criado pelo Terraform.
+# Na Fase 3, o banco gerenciado pertence ao repositorio
+# oficina-database-infra-fiap-fase3. A aplicacao usa o RDS provisionado por ele.
 #
-# Este script descobre o endpoint do RDS, cria namespace/ConfigMap/Secret/Deployment/
-# Service/HPA e NAO aplica os manifests postgres-*.yaml.
+# Este script descobre o endpoint do RDS e cria namespace, ConfigMap, Secret,
+# Deployment, Service e HPA somente para a aplicacao.
 #
 # Uso:
 #   DB_PASSWORD="<sua-senha-do-rds>" ./deploy-aws-academy.sh
 # Variaveis opcionais:
 #   REGION (default us-west-2), IMAGE (default GHCR latest)
-#   DB_INSTANCE_ID (default oficina-dev-db)
+#   DB_INSTANCE_ID (default oficina-homolog-db), DB_NAME e DB_USER
 #   JWT_SECRET (se vazio, e gerado aleatorio) / ADMIN_PASSWORD (default de DEV)
 #   E-mail real (opcional): MAIL_HOST, MAIL_PORT (default 587), MAIL_USERNAME,
 #     MAIL_PASSWORD, MAIL_FROM (default nao-responder@oficina.local). Se MAIL_HOST
@@ -23,8 +22,10 @@
 set -euo pipefail
 
 REGION="${REGION:-us-west-2}"
-IMAGE="${IMAGE:-ghcr.io/tiagomiele/fiap-tech-challenge-oficina-mecanica-fase2:latest}"
-DB_INSTANCE_ID="${DB_INSTANCE_ID:-oficina-dev-db}"
+IMAGE="${IMAGE:-ghcr.io/tiagomiele/oficina-backend-fiap-fase3:latest}"
+DB_INSTANCE_ID="${DB_INSTANCE_ID:-oficina-homolog-db}"
+DB_NAME="${DB_NAME:-oficina}"
+DB_USER="${DB_USER:-oficina_admin}"
 MAIL_HOST="${MAIL_HOST:-}"
 MAIL_PORT="${MAIL_PORT:-587}"
 MAIL_USERNAME="${MAIL_USERNAME:-}"
@@ -75,8 +76,8 @@ metadata:
   labels:
     app.kubernetes.io/part-of: oficina-backend
 data:
-  DB_URL: "jdbc:postgresql://${RDS}:5432/oficina"
-  DB_USER: "oficina"
+  DB_URL: "jdbc:postgresql://${RDS}:5432/${DB_NAME}"
+  DB_USER: "${DB_USER}"
   SERVER_PORT: "8080"
   SPRING_PROFILES_ACTIVE: ""
   ADMIN_EMAIL: "admin@oficina.local"

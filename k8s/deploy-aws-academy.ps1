@@ -3,15 +3,14 @@
   Faz o deploy da aplicacao no EKS do AWS Academy usando o RDS (banco gerenciado).
 
 .DESCRIPTION
-  No AWS Academy o Postgres dentro do cluster NAO funciona: o driver EBS CSI
-  precisa de IRSA (role via OIDC), que o lab bloqueia, entao o PVC nunca provisiona.
-  A arquitetura correta (e a da Fase 2) usa o RDS criado pelo Terraform.
+  Na Fase 3, o banco gerenciado pertence ao repositório
+  oficina-database-infra-fiap-fase3. A aplicação usa o RDS provisionado por ele.
 
   Este script:
     1. Descobre o endpoint do RDS automaticamente (evita o bug de host vazio).
     2. Cria namespace, ConfigMap (apontando pro RDS), Secret (com a senha do RDS),
        Deployment, Service (LoadBalancer) e HPA.
-    3. NAO aplica os manifests postgres-*.yaml (nao sao usados no Academy).
+    3. Implanta somente a aplicacao; o PostgreSQL permanece no RDS.
 
 .PARAMETER DbPassword
   A MESMA senha que voce passou na variavel `db_password` do Terraform
@@ -21,7 +20,7 @@
   Regiao AWS. Padrao: us-west-2.
 
 .PARAMETER Image
-  Imagem do container. Padrao: ghcr.io/tiagomiele/fiap-tech-challenge-oficina-mecanica-fase2:latest
+  Imagem do container. Padrao: ghcr.io/tiagomiele/oficina-backend-fiap-fase3:latest
 
 .PARAMETER JwtSecret
   Segredo usado para assinar os JWT. Se nao informado, e gerado um valor
@@ -31,7 +30,7 @@
   Senha do usuario admin inicial. Troque por um valor forte.
 
 .PARAMETER DbInstanceId
-  Identificador da instancia RDS criada pelo Terraform. Padrao: oficina-dev-db.
+  Identificador da instancia RDS criada pelo Terraform. Padrao: oficina-homolog-db.
 
 .PARAMETER MailHost
   Host SMTP para notificacao por e-mail (ex.: sandbox.smtp.mailtrap.io). Se informado,
@@ -62,10 +61,12 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$DbPassword,
   [string]$Region        = "us-west-2",
-  [string]$Image         = "ghcr.io/tiagomiele/fiap-tech-challenge-oficina-mecanica-fase2:latest",
+  [string]$Image         = "ghcr.io/tiagomiele/oficina-backend-fiap-fase3:latest",
   [string]$JwtSecret     = $env:JWT_SECRET,
   [string]$AdminPassword = $env:ADMIN_PASSWORD,
-  [string]$DbInstanceId  = "oficina-dev-db",
+  [string]$DbInstanceId  = "oficina-homolog-db",
+  [string]$DbName        = "oficina",
+  [string]$DbUser        = "oficina_admin",
   [string]$MailHost      = $env:MAIL_HOST,
   [string]$MailPort      = "587",
   [string]$MailUser      = $env:MAIL_USERNAME,
@@ -120,8 +121,8 @@ metadata:
   labels:
     app.kubernetes.io/part-of: oficina-backend
 data:
-  DB_URL: "jdbc:postgresql://${rds}:5432/oficina"
-  DB_USER: "oficina"
+  DB_URL: "jdbc:postgresql://${rds}:5432/${DbName}"
+  DB_USER: "${DbUser}"
   SERVER_PORT: "8080"
   SPRING_PROFILES_ACTIVE: ""
   ADMIN_EMAIL: "admin@oficina.local"

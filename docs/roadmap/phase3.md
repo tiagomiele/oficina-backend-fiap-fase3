@@ -13,8 +13,8 @@
 
 - Terraform do EKS e do RDS em estados separados;
 - rede, segurança, HPA e ambientes;
-- pipelines de infraestrutura;
-- homologação provisionada.
+- pipelines de validação e plan manual;
+- homologação provisionada somente após revisão do plan e autorização de apply.
 
 ## Semana 3 — Autenticação e aplicação
 

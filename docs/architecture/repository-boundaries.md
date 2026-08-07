@@ -46,4 +46,4 @@ As migrações Flyway permanecem na aplicação, que é proprietária do schema 
 
 ## Compartilhamento de informações
 
-Outputs não sensíveis podem ser consumidos por HCP Terraform Remote State ou AWS Systems Manager Parameter Store. Credenciais e chaves são fornecidas por GitHub Environments, HCP Terraform e Secrets Kubernetes; nunca por arquivos versionados.
+Outputs não sensíveis são transferidos explicitamente entre workspaces e GitHub Environments. Na Semana 2, os outputs de rede do repositório Kubernetes alimentam as variáveis do banco, e os outputs do RDS alimentam o deploy da aplicação. Credenciais e chaves são fornecidas por GitHub Environments e HCP Terraform; nunca por arquivos versionados.
