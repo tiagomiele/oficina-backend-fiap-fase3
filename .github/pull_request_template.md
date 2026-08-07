@@ -1,21 +1,27 @@
 ## Resumo
 
-<!-- O que muda e por quê. Referencie o item do roadmap / issue / user story. -->
+<!-- O que muda e por quê. Referencie o item do roadmap, RFC, ADR ou história. -->
 
 ## Tipo de mudança
 
-- [ ] feat (nova funcionalidade)
-- [ ] fix (correção)
-- [ ] refactor (sem mudança de comportamento)
+- [ ] feat
+- [ ] fix
+- [ ] refactor
 - [ ] docs / chore / infra
 - [ ] test
 
+## Validação
+
+<!-- Liste os comandos executados e os resultados. Use "Não se aplica" somente com justificativa. -->
+
 ## Checklist
 
-- [ ] Testes unitários e/ou de integração adicionados
-- [ ] `./mvnw verify` local passa (inclui JaCoCo ≥ 80% no domínio e ArchUnit)
-- [ ] Migrations Flyway (`V{n}__...sql`) quando houver mudança de schema
-- [ ] Documentação atualizada (README, ADRs, Swagger via anotações)
-- [ ] Sem segredos commitados; variáveis de ambiente documentadas
+- [ ] Mudança limitada à responsabilidade deste repositório
+- [ ] `./mvnw spotless:check` executado ou justificado
+- [ ] `./mvnw verify` executado ou justificado
+- [ ] Migração Flyway adicionada quando houver mudança de schema
+- [ ] README, `/docs`, RFCs, ADRs ou Swagger atualizados quando necessário
+- [ ] Contratos permanecem compatíveis ou possuem estratégia de migração
+- [ ] Nenhum segredo ou dado pessoal foi versionado
 
 ## Notas para o revisor
