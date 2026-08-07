@@ -27,6 +27,10 @@ O README principal apresenta apenas o caminho rápido. Os detalhes técnicos e o
 - [ADR 0002 — New Relic](decisions/adr/0002-new-relic.md)
 - [ADR 0003 — JWT assinado e validado entre serviços](decisions/adr/0003-jwt-signing.md)
 
+## Validação
+
+- [Passo a passo da Semana 1](validation/week1.md)
+
 ## Planejamento
 
 - [Roadmap da Fase 3](roadmap/phase3.md)
