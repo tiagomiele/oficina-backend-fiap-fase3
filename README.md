@@ -15,7 +15,7 @@ Este repositório contém somente a aplicação Spring Boot e os artefatos neces
 - métricas, logs estruturados e instrumentação APM;
 - imagem Docker e deploy da aplicação no EKS.
 
-A infraestrutura AWS, o banco gerenciado e a autenticação serverless pertencem a repositórios separados. O diretório `infra` legado da Fase 2 será migrado na Semana 2 e não deve receber novas evoluções da Fase 3.
+A infraestrutura AWS, o banco gerenciado e a autenticação serverless pertencem a repositórios separados. O Terraform combinado da Fase 2 foi removido deste repositório e substituído por states e pipelines independentes.
 
 ## Arquitetura da solução
 
@@ -87,8 +87,10 @@ O `verify` executa testes unitários, testes de integração, ArchUnit e o gate 
 - [Fluxo de autenticação por CPF](docs/architecture/authentication-flow.md)
 - [Observabilidade com New Relic](docs/architecture/observability-new-relic.md)
 - [Evolução do banco de dados](docs/architecture/database-evolution.md)
+- [Migração da infraestrutura da Fase 2](docs/architecture/infrastructure-migration.md)
 - [Contrato da API de autenticação](docs/contracts/authentication-api.yaml)
 - [Guia de validação da Semana 1](docs/validation/week1.md)
+- [Guia de validação da Semana 2](docs/validation/week2.md)
 - [Roadmap da Fase 3](docs/roadmap/phase3.md)
 - [Documentação preservada da Fase 2](docs/fase2/README-fase2.md)
 

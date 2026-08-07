@@ -1,23 +1,18 @@
 name: Deploy (reusable)
 
-# Workflow reutilizável de deploy no Kubernetes, parametrizado por ambiente.
-# Chamado pelo cd.yml para STG, pré-produção e produção.
-# O gate manual de produção é aplicado pela protection rule do GitHub Environment
-# informado em `environment` (ex.: production com required reviewers).
-
 on:
   workflow_call:
     inputs:
       environment:
-        description: "GitHub Environment alvo (staging, pre-prod, production)"
+        description: GitHub Environment alvo
         required: true
         type: string
       namespace:
-        description: "Namespace Kubernetes do ambiente"
+        description: Namespace Kubernetes do ambiente
         required: true
         type: string
       image_ref:
-        description: "Imagem completa a ser deployada (registry/owner/app:tag)"
+        description: Imagem completa a ser implantada
         required: true
         type: string
 
@@ -28,111 +23,124 @@ jobs:
     environment: ${{ inputs.environment }}
     permissions:
       contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+      APP_DB_URL: ${{ vars.APP_DB_URL }}
+      APP_DB_USER: ${{ vars.APP_DB_USER || 'oficina_admin' }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verificar se o cluster está configurado
+      - name: Validate environment configuration
         id: check
         env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
         run: |
-          if [ -z "${KUBECONFIG_B64}" ]; then
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Secret KUBECONFIG não configurado para o ambiente '${{ inputs.environment }}' — deploy será pulado. Configure o secret no GitHub Environment para habilitar o deploy automático."
+          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ -z "$AWS_SESSION_TOKEN" ] || [ -z "$EKS_CLUSTER_NAME" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Credenciais temporárias AWS ou EKS_CLUSTER_NAME ausentes; deploy ignorado."
           else
-            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Configure AWS Academy credentials
+        if: steps.check.outputs.configured == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Validate AWS session
+        if: steps.check.outputs.configured == 'true'
+        run: aws sts get-caller-identity
+
       - name: Setup kubectl
-        if: steps.check.outputs.present == 'true'
+        if: steps.check.outputs.configured == 'true'
         uses: azure/setup-kubectl@v4
         with:
-          version: 'v1.29.0'
+          version: 'v1.31.0'
 
-      - name: Configurar acesso ao cluster
-        if: steps.check.outputs.present == 'true'
-        env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
+      - name: Configure cluster access
+        if: steps.check.outputs.configured == 'true'
         run: |
-          mkdir -p "$HOME/.kube"
-          echo "${KUBECONFIG_B64}" | base64 -d > "$HOME/.kube/config"
-          chmod 600 "$HOME/.kube/config"
+          aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
           kubectl cluster-info
 
-      - name: Renderizar manifestos para o namespace do ambiente
-        if: steps.check.outputs.present == 'true'
+      - name: Render application manifests
+        if: steps.check.outputs.configured == 'true'
         env:
           TARGET_NS: ${{ inputs.namespace }}
           IMAGE_REF: ${{ inputs.image_ref }}
         run: |
           set -euo pipefail
-          rm -rf rendered && mkdir -p rendered
-          cp k8s/*.yaml rendered/
-          # O Secret é provisionado por ambiente no passo seguinte (não usa o
-          # secret.yaml versionado, que contém apenas credenciais default).
-          rm -f rendered/secret.yaml
-          # Troca o namespace fixo (oficina) pelo namespace do ambiente
+          rm -rf rendered
+          mkdir -p rendered
+          cp k8s/namespace.yaml k8s/app-deployment.yaml k8s/app-service.yaml k8s/hpa.yaml rendered/
           sed -i "s|name: oficina$|name: ${TARGET_NS}|" rendered/namespace.yaml
           sed -i "s|namespace: oficina$|namespace: ${TARGET_NS}|" rendered/*.yaml
-          # Aponta a imagem para a build desta execução
           sed -i "s|image: oficina-backend:latest|image: ${IMAGE_REF}|" rendered/app-deployment.yaml
-          echo "Namespace alvo: ${TARGET_NS}"
-          grep -h "image:" rendered/app-deployment.yaml
+          kubectl apply -f rendered/namespace.yaml
 
-      - name: Provisionar Secret do ambiente
-        if: steps.check.outputs.present == 'true'
+      - name: Provision application configuration
+        if: steps.check.outputs.configured == 'true'
         env:
           TARGET_NS: ${{ inputs.namespace }}
-          ENVIRONMENT: ${{ inputs.environment }}
           APP_DB_PASSWORD: ${{ secrets.APP_DB_PASSWORD }}
           APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
           APP_ADMIN_PASSWORD: ${{ secrets.APP_ADMIN_PASSWORD }}
         run: |
           set -euo pipefail
-          # Garante o namespace antes de criar o Secret
-          kubectl apply -f rendered/namespace.yaml
-          if [ -n "${APP_DB_PASSWORD}" ] && [ -n "${APP_JWT_SECRET}" ] && [ -n "${APP_ADMIN_PASSWORD}" ]; then
-            echo "Criando Secret a partir dos secrets do GitHub Environment '${ENVIRONMENT}'"
-            kubectl create secret generic oficina-secrets \
-              --namespace "${TARGET_NS}" \
-              --from-literal=DB_PASSWORD="${APP_DB_PASSWORD}" \
-              --from-literal=JWT_SECRET="${APP_JWT_SECRET}" \
-              --from-literal=ADMIN_PASSWORD="${APP_ADMIN_PASSWORD}" \
-              --dry-run=client -o yaml | kubectl apply -f -
-          elif [ "${ENVIRONMENT}" = "production" ]; then
-            echo "::error::Secrets de produção não configurados. Defina APP_DB_PASSWORD, APP_JWT_SECRET e APP_ADMIN_PASSWORD no GitHub Environment 'production'."
+          if [ -z "$APP_DB_URL" ] || [ -z "$APP_DB_USER" ]; then
+            echo "::error::Configure APP_DB_URL e APP_DB_USER no GitHub Environment."
             exit 1
-          else
-            echo "::warning::Secrets do ambiente não definidos — usando credenciais default de k8s/secret.yaml (apenas para STG/homologação; NÃO usar em produção)."
-            sed "s|namespace: oficina$|namespace: ${TARGET_NS}|" k8s/secret.yaml | kubectl apply -f -
           fi
+          if [ -z "$APP_DB_PASSWORD" ] || [ -z "$APP_JWT_SECRET" ] || [ -z "$APP_ADMIN_PASSWORD" ]; then
+            echo "::error::Configure APP_DB_PASSWORD, APP_JWT_SECRET e APP_ADMIN_PASSWORD no GitHub Environment."
+            exit 1
+          fi
+          kubectl create configmap oficina-config \
+            --namespace "$TARGET_NS" \
+            --from-literal=DB_URL="$APP_DB_URL" \
+            --from-literal=DB_USER="$APP_DB_USER" \
+            --from-literal=SERVER_PORT=8080 \
+            --from-literal=SPRING_PROFILES_ACTIVE= \
+            --from-literal=ADMIN_EMAIL=admin@oficina.local \
+            --from-literal=NOTIFICACAO_TIPO=log \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic oficina-secrets \
+            --namespace "$TARGET_NS" \
+            --from-literal=DB_PASSWORD="$APP_DB_PASSWORD" \
+            --from-literal=JWT_SECRET="$APP_JWT_SECRET" \
+            --from-literal=ADMIN_PASSWORD="$APP_ADMIN_PASSWORD" \
+            --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Aplicar manifestos (namespace, config, banco e aplicação)
-        if: steps.check.outputs.present == 'true'
-        run: kubectl apply -f rendered/
+      - name: Apply application manifests
+        if: steps.check.outputs.configured == 'true'
+        run: |
+          kubectl apply -f rendered/app-deployment.yaml
+          kubectl apply -f rendered/app-service.yaml
+          kubectl apply -f rendered/hpa.yaml
 
-      - name: Aguardar rollout do banco de dados
-        if: steps.check.outputs.present == 'true'
-        run: kubectl rollout status deployment/oficina-db -n "${{ inputs.namespace }}" --timeout=120s
-
-      - name: Aguardar rollout da aplicação
-        if: steps.check.outputs.present == 'true'
+      - name: Wait for application rollout
+        if: steps.check.outputs.configured == 'true'
         run: kubectl rollout status deployment/oficina-app -n "${{ inputs.namespace }}" --timeout=180s
 
-      - name: Smoke test (/actuator/health)
-        if: steps.check.outputs.present == 'true'
+      - name: Smoke test
+        if: steps.check.outputs.configured == 'true'
         run: |
-          set -euo pipefail
           kubectl -n "${{ inputs.namespace }}" run smoke-${{ github.run_id }} \
             --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet \
             --command -- curl -fsS http://oficina-app/actuator/health
-          echo "Smoke test OK"
 
-      - name: Resumo do deploy
-        if: steps.check.outputs.present == 'true'
+      - name: Deployment summary
+        if: steps.check.outputs.configured == 'true'
         run: |
           {
-            echo "### Deploy em '${{ inputs.environment }}' :rocket:"
+            echo "### Deploy em '${{ inputs.environment }}'"
             echo "- Namespace: \`${{ inputs.namespace }}\`"
             echo "- Imagem: \`${{ inputs.image_ref }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
