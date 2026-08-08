@@ -79,6 +79,10 @@ oficina:
       issuer: oficina-backend
       access-token-ttl-minutes: 15
       refresh-token-ttl-days: 7
+    serverless-jwt:
+      public-key: ${SERVERLESS_JWT_PUBLIC_KEY:}
+      issuer: ${SERVERLESS_JWT_ISSUER:oficina-auth-serverless}
+      audience: ${SERVERLESS_JWT_AUDIENCE:oficina-backend}
     rate-limit:
       login-per-minute: 10
       public-per-minute: 30

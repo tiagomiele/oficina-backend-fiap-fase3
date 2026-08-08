@@ -18,8 +18,8 @@ class RejeicaoRefazerOsIntegrationTest extends IntegrationTestBase {
             .contentType("application/json")
             .body(
                 """
-                {"nome":"Maria Rejeição","documento":"83574032714","email":"maria@teste.com","telefone":"11888888888"}
-                """)
+{"nome":"Maria Rejeição","documento":"83574032714","email":"maria@teste.com","telefone":"11888888888"}
+""")
             .post("clientes")
             .then()
             .statusCode(201)
@@ -43,7 +43,8 @@ class RejeicaoRefazerOsIntegrationTest extends IntegrationTestBase {
         given()
             .header("Authorization", "Bearer " + token)
             .contentType("application/json")
-            .body("""
+            .body(
+                """
                 {"nome":"Alinhamento","descricao":"Alinhamento 3D","precoBase":120.00}
                 """)
             .post("servicos")
@@ -73,9 +74,11 @@ class RejeicaoRefazerOsIntegrationTest extends IntegrationTestBase {
     given()
         .header("Authorization", "Bearer " + token)
         .contentType("application/json")
-        .body("""
+        .body(
+            """
             {"idServicoSku":%d,"quantidade":1}
-            """.formatted(idServico))
+            """
+                .formatted(idServico))
         .post("/ordens-servico/" + numeroOs + "/servicos")
         .then()
         .statusCode(200);
@@ -89,8 +92,10 @@ class RejeicaoRefazerOsIntegrationTest extends IntegrationTestBase {
 
     // Cliente rejeita e pede refazer → EM_DIAGNOSTICO
     given()
+        .header("Authorization", "Bearer " + tokenCliente(idCliente))
         .contentType("application/json")
-        .body("""
+        .body(
+            """
             {"motivo":"Muito caro"}
             """)
         .post("/ordens-servico/" + numeroOs + "/rejeitar-refazer")
@@ -120,6 +125,7 @@ class RejeicaoRefazerOsIntegrationTest extends IntegrationTestBase {
 
     // Cliente aprova desta vez
     given()
+        .header("Authorization", "Bearer " + tokenCliente(idCliente))
         .post("/ordens-servico/" + numeroOs + "/aprovar")
         .then()
         .statusCode(200)

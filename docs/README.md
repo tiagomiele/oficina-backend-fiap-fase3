@@ -32,6 +32,7 @@ O README principal apresenta apenas o caminho rápido. Os detalhes técnicos e o
 
 - [Passo a passo da Semana 1](validation/week1.md)
 - [Passo a passo da Semana 2](validation/week2.md)
+- [Passo a passo da Semana 3](validation/week3.md)
 
 ## Planejamento
 

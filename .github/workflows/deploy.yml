@@ -28,6 +28,8 @@ jobs:
       EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
       APP_DB_URL: ${{ vars.APP_DB_URL }}
       APP_DB_USER: ${{ vars.APP_DB_USER || 'oficina_admin' }}
+      SERVERLESS_JWT_ISSUER: ${{ vars.SERVERLESS_JWT_ISSUER || 'oficina-auth-serverless' }}
+      SERVERLESS_JWT_AUDIENCE: ${{ vars.SERVERLESS_JWT_AUDIENCE || 'oficina-backend' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -62,7 +64,7 @@ jobs:
         if: steps.check.outputs.configured == 'true'
         uses: azure/setup-kubectl@v4
         with:
-          version: 'v1.31.0'
+          version: 'v1.34.0'
 
       - name: Configure cluster access
         if: steps.check.outputs.configured == 'true'
@@ -92,14 +94,15 @@ jobs:
           APP_DB_PASSWORD: ${{ secrets.APP_DB_PASSWORD }}
           APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
           APP_ADMIN_PASSWORD: ${{ secrets.APP_ADMIN_PASSWORD }}
+          APP_SERVERLESS_JWT_PUBLIC_KEY: ${{ secrets.SERVERLESS_JWT_PUBLIC_KEY }}
         run: |
           set -euo pipefail
           if [ -z "$APP_DB_URL" ] || [ -z "$APP_DB_USER" ]; then
             echo "::error::Configure APP_DB_URL e APP_DB_USER no GitHub Environment."
             exit 1
           fi
-          if [ -z "$APP_DB_PASSWORD" ] || [ -z "$APP_JWT_SECRET" ] || [ -z "$APP_ADMIN_PASSWORD" ]; then
-            echo "::error::Configure APP_DB_PASSWORD, APP_JWT_SECRET e APP_ADMIN_PASSWORD no GitHub Environment."
+          if [ -z "$APP_DB_PASSWORD" ] || [ -z "$APP_JWT_SECRET" ] || [ -z "$APP_ADMIN_PASSWORD" ] || [ -z "$APP_SERVERLESS_JWT_PUBLIC_KEY" ]; then
+            echo "::error::Configure APP_DB_PASSWORD, APP_JWT_SECRET, APP_ADMIN_PASSWORD e SERVERLESS_JWT_PUBLIC_KEY no GitHub Environment."
             exit 1
           fi
           kubectl create configmap oficina-config \
@@ -110,12 +113,15 @@ jobs:
             --from-literal=SPRING_PROFILES_ACTIVE= \
             --from-literal=ADMIN_EMAIL=admin@oficina.local \
             --from-literal=NOTIFICACAO_TIPO=log \
+            --from-literal=SERVERLESS_JWT_ISSUER="$SERVERLESS_JWT_ISSUER" \
+            --from-literal=SERVERLESS_JWT_AUDIENCE="$SERVERLESS_JWT_AUDIENCE" \
             --dry-run=client -o yaml | kubectl apply -f -
           kubectl create secret generic oficina-secrets \
             --namespace "$TARGET_NS" \
             --from-literal=DB_PASSWORD="$APP_DB_PASSWORD" \
             --from-literal=JWT_SECRET="$APP_JWT_SECRET" \
             --from-literal=ADMIN_PASSWORD="$APP_ADMIN_PASSWORD" \
+            --from-literal=SERVERLESS_JWT_PUBLIC_KEY="$APP_SERVERLESS_JWT_PUBLIC_KEY" \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Apply application manifests

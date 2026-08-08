@@ -9,10 +9,11 @@
 #
 # Uso:
 #   DB_PASSWORD="<sua-senha-do-rds>" ./deploy-aws-academy.sh
-# Variaveis opcionais:
+# Variaveis:
 #   REGION (default us-west-2), IMAGE (default GHCR latest)
 #   DB_INSTANCE_ID (default oficina-homolog-db), DB_NAME e DB_USER
 #   JWT_SECRET (se vazio, e gerado aleatorio) / ADMIN_PASSWORD (default de DEV)
+#   SERVERLESS_JWT_PUBLIC_KEY (obrigatoria), SERVERLESS_JWT_ISSUER e SERVERLESS_JWT_AUDIENCE
 #   E-mail real (opcional): MAIL_HOST, MAIL_PORT (default 587), MAIL_USERNAME,
 #     MAIL_PASSWORD, MAIL_FROM (default nao-responder@oficina.local). Se MAIL_HOST
 #     for informado, ativa NOTIFICACAO_TIPO=smtp; senao usa modo 'log' (ficticio).
@@ -31,6 +32,8 @@ MAIL_PORT="${MAIL_PORT:-587}"
 MAIL_USERNAME="${MAIL_USERNAME:-}"
 MAIL_PASSWORD="${MAIL_PASSWORD:-}"
 MAIL_FROM="${MAIL_FROM:-nao-responder@oficina.local}"
+SERVERLESS_JWT_ISSUER="${SERVERLESS_JWT_ISSUER:-oficina-auth-serverless}"
+SERVERLESS_JWT_AUDIENCE="${SERVERLESS_JWT_AUDIENCE:-oficina-backend}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ -z "$MAIL_HOST" ]]; then
@@ -44,6 +47,11 @@ fi
 if [[ -z "${DB_PASSWORD:-}" ]]; then
   echo "ERRO: defina DB_PASSWORD com a MESMA senha da variavel db_password do Terraform." >&2
   echo "Ex.: DB_PASSWORD='<sua-senha-do-rds>' ./deploy-aws-academy.sh" >&2
+  exit 1
+fi
+
+if [[ -z "${SERVERLESS_JWT_PUBLIC_KEY:-}" ]]; then
+  echo "ERRO: defina SERVERLESS_JWT_PUBLIC_KEY com a chave publica da autenticacao." >&2
   exit 1
 fi
 
@@ -85,6 +93,8 @@ data:
   NOTIFICACAO_REMETENTE: "${MAIL_FROM}"
   MAIL_HOST: "${MAIL_HOST}"
   MAIL_PORT: "${MAIL_PORT}"
+  SERVERLESS_JWT_ISSUER: "${SERVERLESS_JWT_ISSUER}"
+  SERVERLESS_JWT_AUDIENCE: "${SERVERLESS_JWT_AUDIENCE}"
 YAML
 
 # Secret via 'kubectl create secret --from-literal' (em vez de YAML inline) para que
@@ -92,7 +102,8 @@ YAML
 SECRET_ARGS=(generic oficina-secrets --namespace oficina
   --from-literal=DB_PASSWORD="${DB_PASSWORD}"
   --from-literal=JWT_SECRET="${JWT_SECRET}"
-  --from-literal=ADMIN_PASSWORD="${ADMIN_PASSWORD}")
+  --from-literal=ADMIN_PASSWORD="${ADMIN_PASSWORD}"
+  --from-literal=SERVERLESS_JWT_PUBLIC_KEY="${SERVERLESS_JWT_PUBLIC_KEY}")
 if [[ "$NOTIFICACAO_TIPO" == "smtp" ]]; then
   SECRET_ARGS+=(--from-literal=MAIL_USERNAME="${MAIL_USERNAME}")
   SECRET_ARGS+=(--from-literal=MAIL_PASSWORD="${MAIL_PASSWORD}")

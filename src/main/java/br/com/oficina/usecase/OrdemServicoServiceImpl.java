@@ -2,8 +2,10 @@ package br.com.oficina.usecase;
 
 import br.com.oficina.domain.enums.StatusOrdemServico;
 import br.com.oficina.domain.enums.TipoItem;
+import br.com.oficina.domain.exception.BusinessException;
 import br.com.oficina.domain.model.Cliente;
 import br.com.oficina.domain.model.Dinheiro;
+import br.com.oficina.domain.model.HistoricoStatusOrdemServico;
 import br.com.oficina.domain.model.ItemOrcamento;
 import br.com.oficina.domain.model.NumeroOS;
 import br.com.oficina.domain.model.OrdemServico;
@@ -12,13 +14,13 @@ import br.com.oficina.domain.model.Placa;
 import br.com.oficina.domain.model.Servico;
 import br.com.oficina.domain.model.VeiculoId;
 import br.com.oficina.usecase.gateway.ClienteRepository;
+import br.com.oficina.usecase.gateway.HistoricoStatusOrdemServicoRepository;
 import br.com.oficina.usecase.gateway.NotificacaoGateway;
 import br.com.oficina.usecase.gateway.NumeroOSGenerator;
 import br.com.oficina.usecase.gateway.OrdemServicoRepository;
 import br.com.oficina.usecase.gateway.PecaRepository;
 import br.com.oficina.usecase.gateway.ServicoRepository;
 import br.com.oficina.usecase.gateway.VeiculoRepository;
-import br.com.oficina.domain.exception.BusinessException;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +40,7 @@ public class OrdemServicoServiceImpl {
   private final EstoqueServiceImpl estoque;
   private final FinanceiroServiceImpl financeiro;
   private final NotificacaoGateway notificacao;
+  private final HistoricoStatusOrdemServicoRepository historico;
 
   public OrdemServicoServiceImpl(
       OrdemServicoRepository repo,
@@ -48,7 +51,8 @@ public class OrdemServicoServiceImpl {
       PecaRepository pecas,
       EstoqueServiceImpl estoque,
       FinanceiroServiceImpl financeiro,
-      NotificacaoGateway notificacao) {
+      NotificacaoGateway notificacao,
+      HistoricoStatusOrdemServicoRepository historico) {
     this.repo = repo;
     this.numerador = numerador;
     this.clientes = clientes;
@@ -58,6 +62,7 @@ public class OrdemServicoServiceImpl {
     this.estoque = estoque;
     this.financeiro = financeiro;
     this.notificacao = notificacao;
+    this.historico = historico;
   }
 
   @Transactional
@@ -223,9 +228,47 @@ public class OrdemServicoServiceImpl {
     return salva;
   }
 
+  @Transactional
+  public OrdemServico aprovarDoCliente(String numero, Long idCliente) {
+    exigirProprietario(carregar(numero), idCliente);
+    return aprovar(numero);
+  }
+
+  @Transactional
+  public OrdemServico rejeitarCancelarDoCliente(String numero, String motivo, Long idCliente) {
+    exigirProprietario(carregar(numero), idCliente);
+    return rejeitarCancelar(numero, motivo);
+  }
+
+  @Transactional
+  public OrdemServico rejeitarRefazerDoCliente(String numero, String motivo, Long idCliente) {
+    exigirProprietario(carregar(numero), idCliente);
+    return rejeitarRefazer(numero, motivo);
+  }
+
+  @Transactional
+  public OrdemServico confirmarPagamentoDoCliente(
+      String numero, String comprovante, Long idCliente) {
+    exigirProprietario(carregar(numero), idCliente);
+    return confirmarPagamento(numero, comprovante);
+  }
+
   @Transactional(readOnly = true)
   public OrdemServico consultar(String numero) {
     return carregar(numero);
+  }
+
+  @Transactional(readOnly = true)
+  public OrdemServico consultarDoCliente(String numero, Long idCliente) {
+    OrdemServico os = carregar(numero);
+    exigirProprietario(os, idCliente);
+    return os;
+  }
+
+  @Transactional(readOnly = true)
+  public List<HistoricoStatusOrdemServico> historicoDoCliente(String numero, Long idCliente) {
+    exigirProprietario(carregar(numero), idCliente);
+    return historico.porOrdemServico(numero);
   }
 
   @Transactional(readOnly = true)
@@ -242,6 +285,12 @@ public class OrdemServicoServiceImpl {
                     (OrdemServico os) -> os.getStatus().getPrioridadeListagem())
                 .thenComparing(OrdemServico::getCriadoEm))
         .toList();
+  }
+
+  private void exigirProprietario(OrdemServico os, Long idCliente) {
+    if (idCliente == null || !os.getIdCliente().equals(idCliente)) {
+      throw new BusinessException("OS_NAO_ENCONTRADA", "Ordem de serviço não encontrada");
+    }
   }
 
   private OrdemServico carregar(String numero) {
