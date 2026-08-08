@@ -45,3 +45,7 @@ coverage/
 crash.log
 *.tfvars
 !*.tfvars.example
+
+# Chaves locais
+*.pem
+*.key

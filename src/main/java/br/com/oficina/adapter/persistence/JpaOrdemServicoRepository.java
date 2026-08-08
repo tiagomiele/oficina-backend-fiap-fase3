@@ -1,31 +1,42 @@
 package br.com.oficina.adapter.persistence;
 
+import br.com.oficina.adapter.exception.RequestIdFilter;
+import br.com.oficina.domain.enums.StatusOrdemServico;
 import br.com.oficina.domain.model.Dinheiro;
 import br.com.oficina.domain.model.ItemOrcamento;
 import br.com.oficina.domain.model.NumeroOS;
 import br.com.oficina.domain.model.OrdemServico;
 import br.com.oficina.domain.model.Placa;
+import br.com.oficina.usecase.gateway.HistoricoStatusOrdemServicoRepository;
 import br.com.oficina.usecase.gateway.OrdemServicoRepository;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 
 @Component
 public class JpaOrdemServicoRepository implements OrdemServicoRepository {
 
   private final SpringDataOrdemServicoRepository repo;
+  private final HistoricoStatusOrdemServicoRepository historico;
 
-  public JpaOrdemServicoRepository(SpringDataOrdemServicoRepository repo) {
+  public JpaOrdemServicoRepository(
+      SpringDataOrdemServicoRepository repo, HistoricoStatusOrdemServicoRepository historico) {
     this.repo = repo;
+    this.historico = historico;
   }
 
   @Override
   public OrdemServico salvar(OrdemServico os) {
     String id = os.getNumero().valor();
-    OrdemServicoJpaEntity entity = repo.findById(id).orElseGet(() -> criar(id, os.getCriadoEm()));
+    Optional<OrdemServicoJpaEntity> existente = repo.findById(id);
+    StatusOrdemServico statusAnterior =
+        existente.map(OrdemServicoJpaEntity::getStatus).orElse(null);
+    OrdemServicoJpaEntity entity = existente.orElseGet(() -> criar(id, os.getCriadoEm()));
     entity.setIdCliente(os.getIdCliente());
     entity.setIdPlaca(os.getPlaca().valor());
     entity.setStatus(os.getStatus());
@@ -55,6 +66,12 @@ public class JpaOrdemServicoRepository implements OrdemServicoRepository {
       entity.getItens().add(ij);
     }
     OrdemServicoJpaEntity saved = repo.save(entity);
+    String correlationId = MDC.get(RequestIdFilter.MDC_KEY);
+    if (correlationId == null || correlationId.isBlank()) {
+      correlationId = UUID.randomUUID().toString();
+    }
+    historico.registrarTransicao(
+        id, statusAnterior, os.getStatus(), os.getAtualizadoEm(), correlationId);
     return toDomain(saved, os.getOrcamentoAtual());
   }
 

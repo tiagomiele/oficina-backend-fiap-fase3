@@ -18,8 +18,8 @@ class ListagemAtivasIntegrationTest extends IntegrationTestBase {
             .contentType("application/json")
             .body(
                 """
-                {"nome":"Pedro Lista","documento":"71924748436","email":"pedro@teste.com","telefone":"11777777777"}
-                """)
+{"nome":"Pedro Lista","documento":"71924748436","email":"pedro@teste.com","telefone":"11777777777"}
+""")
             .post("clientes")
             .then()
             .statusCode(201)
@@ -55,7 +55,8 @@ class ListagemAtivasIntegrationTest extends IntegrationTestBase {
         given()
             .header("Authorization", "Bearer " + token)
             .contentType("application/json")
-            .body("""
+            .body(
+                """
                 {"nome":"Revisão","descricao":"Revisão completa","precoBase":300.00}
                 """)
             .post("servicos")
@@ -101,7 +102,11 @@ class ListagemAtivasIntegrationTest extends IntegrationTestBase {
         .post("/ordens-servico/" + os2 + "/enviar-para-aprovacao")
         .then()
         .statusCode(200);
-    given().post("/ordens-servico/" + os2 + "/aprovar").then().statusCode(200);
+    given()
+        .header("Authorization", "Bearer " + tokenCliente(idCliente))
+        .post("/ordens-servico/" + os2 + "/aprovar")
+        .then()
+        .statusCode(200);
 
     // GET /relatorios/os-por-status — OS2 (EM_EXECUCAO) deve vir primeiro
     given()

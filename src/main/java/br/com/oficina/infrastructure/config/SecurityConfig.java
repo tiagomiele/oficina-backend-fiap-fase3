@@ -2,6 +2,7 @@ package br.com.oficina.infrastructure.config;
 
 import br.com.oficina.adapter.security.JwtAuthenticationFilter;
 import br.com.oficina.adapter.security.JwtProperties;
+import br.com.oficina.adapter.security.ServerlessJwtProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,7 +23,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 @Configuration
 @EnableMethodSecurity
-@EnableConfigurationProperties(JwtProperties.class)
+@EnableConfigurationProperties({JwtProperties.class, ServerlessJwtProperties.class})
 public class SecurityConfig {
 
   private final JwtAuthenticationFilter jwtFilter;
@@ -69,18 +70,17 @@ public class SecurityConfig {
                         "/actuator/info",
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
-                        "/swagger-ui.html",
-                        "/consulta/**")
+                        "/swagger-ui.html")
                     .permitAll()
-                    // ClienteOficinaController — endpoints públicos (sem JWT)
-                    .requestMatchers(HttpMethod.POST, "/ordens-servico/*/aprovar")
-                    .permitAll()
-                    .requestMatchers(HttpMethod.POST, "/ordens-servico/*/rejeitar-refazer")
-                    .permitAll()
-                    .requestMatchers(HttpMethod.POST, "/ordens-servico/*/rejeitar-cancelar")
-                    .permitAll()
-                    .requestMatchers(HttpMethod.POST, "/ordens-servico/*/confirmar-pagamento")
-                    .permitAll()
+                    .requestMatchers(HttpMethod.GET, "/consulta/**", "/ordens-servico/*/historico")
+                    .hasRole("CLIENTE")
+                    .requestMatchers(
+                        HttpMethod.POST,
+                        "/ordens-servico/*/aprovar",
+                        "/ordens-servico/*/rejeitar-refazer",
+                        "/ordens-servico/*/rejeitar-cancelar",
+                        "/ordens-servico/*/confirmar-pagamento")
+                    .hasRole("CLIENTE")
                     .anyRequest()
                     .authenticated())
         .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
