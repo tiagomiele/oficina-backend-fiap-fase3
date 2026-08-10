@@ -1317,15 +1317,15 @@ Não guarde prints de:
 
 ---
 
-## 24. Encerramento e custos
+## 24. Regras de promoção e controle de custo
 
-Ao terminar a coleta de evidências:
+Estas regras se aplicam ao final de todas as seções deste guia; não destrua os recursos antes de validar New Relic, Newman, k6 e HPA:
 
 1. não promova automaticamente para `main`;
 2. revise os resultados da homologação;
 3. decida separadamente sobre o PR `homolog → main`;
-4. destrua os recursos se não forem mais necessários e se a entrega permitir;
-5. faça destroy na ordem inversa: autenticação, banco e Kubernetes;
+4. destrua os recursos somente após concluir as seções 25 a 40, se não forem mais necessários e se a entrega permitir;
+5. siga a ordem detalhada de destroy da seção 37;
 6. revise cada destroy antes de confirmar;
 7. não use `-auto-approve`.
 
