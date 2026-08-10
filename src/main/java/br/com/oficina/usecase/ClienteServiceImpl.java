@@ -1,9 +1,9 @@
 package br.com.oficina.usecase;
 
+import br.com.oficina.domain.exception.BusinessException;
 import br.com.oficina.domain.model.Cliente;
 import br.com.oficina.domain.model.Documento;
 import br.com.oficina.usecase.gateway.ClienteRepository;
-import br.com.oficina.domain.exception.BusinessException;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

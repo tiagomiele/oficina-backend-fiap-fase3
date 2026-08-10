@@ -13,8 +13,8 @@ class EndpointsAdminTecnicoFase2IntegrationTest extends IntegrationTestBase {
         .contentType("application/json")
         .body(
             """
-            {"nome":"Fase2 Cliente","documento":"%s","email":"f2@teste.com","telefone":"11955554444"}
-            """
+{"nome":"Fase2 Cliente","documento":"%s","email":"f2@teste.com","telefone":"11955554444"}
+"""
                 .formatted(doc))
         .post("clientes")
         .then()
@@ -69,7 +69,8 @@ class EndpointsAdminTecnicoFase2IntegrationTest extends IntegrationTestBase {
         given()
             .header("Authorization", "Bearer " + token)
             .contentType("application/json")
-            .body("""
+            .body(
+                """
                 {"nome":"Diag","descricao":"Diag","precoBase":100.00}
                 """)
             .post("servicos")

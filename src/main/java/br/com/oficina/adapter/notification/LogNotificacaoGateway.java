@@ -7,17 +7,16 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 @Service
-@ConditionalOnProperty(name = "oficina.notificacao.tipo", havingValue = "log", matchIfMissing = true)
+@ConditionalOnProperty(
+    name = "oficina.notificacao.tipo",
+    havingValue = "log",
+    matchIfMissing = true)
 public class LogNotificacaoGateway implements NotificacaoGateway {
 
   private static final Logger log = LoggerFactory.getLogger(LogNotificacaoGateway.class);
 
   @Override
   public void enviar(String destinatario, String assunto, String corpo) {
-    log.info(
-        "[NOTIFICAÇÃO FICTÍCIA] Para: {} | Assunto: {} | Corpo: {}",
-        destinatario,
-        assunto,
-        corpo);
+    log.info("Notificacao simulada processada");
   }
 }

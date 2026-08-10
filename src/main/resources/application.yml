@@ -73,6 +73,10 @@ springdoc:
     operationsSorter: __OFICINA_OPERATIONS_SORTER__
 
 oficina:
+  environment: ${OFICINA_ENVIRONMENT:local}
+  observability:
+    new-relic:
+      enabled: ${OFICINA_OBSERVABILITY_NEW_RELIC_ENABLED:false}
   security:
     jwt:
       secret: ${JWT_SECRET:change-me-in-production-at-least-32-chars-long-please}
