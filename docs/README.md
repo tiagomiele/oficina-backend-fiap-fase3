@@ -30,9 +30,10 @@ O README principal apresenta apenas o caminho rápido. Os detalhes técnicos e o
 
 ## Validação
 
-- [Passo a passo da Semana 1](validation/week1.md)
-- [Passo a passo da Semana 2](validation/week2.md)
-- [Passo a passo da Semana 3](validation/week3.md)
+- [Guia geral de execução e validação do projeto](validation/general-project.md)
+- [Histórico — Semana 1](validation/week1.md)
+- [Histórico — Semana 2](validation/week2.md)
+- [Histórico — Semana 3](validation/week3.md)
 
 ## Planejamento
 

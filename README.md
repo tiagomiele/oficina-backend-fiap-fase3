@@ -89,8 +89,10 @@ O `verify` executa testes unitários, testes de integração, ArchUnit e o gate 
 - [Evolução do banco de dados](docs/architecture/database-evolution.md)
 - [Migração da infraestrutura da Fase 2](docs/architecture/infrastructure-migration.md)
 - [Contrato da API de autenticação](docs/contracts/authentication-api.yaml)
-- [Guia de validação da Semana 1](docs/validation/week1.md)
-- [Guia de validação da Semana 2](docs/validation/week2.md)
+- [Guia geral de execução e validação do projeto](docs/validation/general-project.md)
+- [Histórico de validação da Semana 1](docs/validation/week1.md)
+- [Histórico de validação da Semana 2](docs/validation/week2.md)
+- [Histórico de validação da Semana 3](docs/validation/week3.md)
 - [Roadmap da Fase 3](docs/roadmap/phase3.md)
 - [Documentação preservada da Fase 2](docs/fase2/README-fase2.md)
 
