@@ -1,8 +1,9 @@
 name: CI
 on:
   push:
-    branches: [main]
+    branches: [main, homolog]
   pull_request:
+    branches: [main, homolog]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -28,8 +29,8 @@ jobs:
       - name: Grant execute permission for mvnw
         run: chmod +x mvnw
 
-      - name: Build + tests + JaCoCo
-        run: ./mvnw -B verify
+      - name: Format, build, tests and JaCoCo
+        run: ./mvnw -B spotless:check verify
 
       - name: Upload JaCoCo report
         if: always()

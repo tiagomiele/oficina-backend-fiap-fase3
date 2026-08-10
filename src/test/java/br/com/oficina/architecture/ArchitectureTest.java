@@ -82,8 +82,7 @@ class ArchitectureTest {
         .resideInAPackage("br.com.oficina.usecase..")
         .should()
         .dependOnClassesThat()
-        .resideInAnyPackage(
-            "br.com.oficina.adapter..", "br.com.oficina.infrastructure..")
+        .resideInAnyPackage("br.com.oficina.adapter..", "br.com.oficina.infrastructure..")
         .check(CLASSES);
   }
 

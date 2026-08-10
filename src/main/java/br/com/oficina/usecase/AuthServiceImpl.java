@@ -1,9 +1,9 @@
 package br.com.oficina.usecase;
 
-import br.com.oficina.usecase.gateway.TokenGateway;
-import br.com.oficina.usecase.gateway.UserRepository;
 import br.com.oficina.domain.exception.BusinessException;
 import br.com.oficina.domain.model.User;
+import br.com.oficina.usecase.gateway.TokenGateway;
+import br.com.oficina.usecase.gateway.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 

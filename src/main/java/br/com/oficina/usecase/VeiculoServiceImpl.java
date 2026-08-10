@@ -1,11 +1,11 @@
 package br.com.oficina.usecase;
 
+import br.com.oficina.domain.exception.BusinessException;
 import br.com.oficina.domain.model.Placa;
 import br.com.oficina.domain.model.Veiculo;
 import br.com.oficina.domain.model.VeiculoId;
 import br.com.oficina.usecase.gateway.ClienteRepository;
 import br.com.oficina.usecase.gateway.VeiculoRepository;
-import br.com.oficina.domain.exception.BusinessException;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
