@@ -1,5 +1,7 @@
 # Validação completa da Semana 3
 
+> Documento histórico. As tabelas de configuração manual foram substituídas por `scripts/configure-environment.ps1`. Para uma nova execução, use somente o [guia geral atualizado](general-project.md); não copie credenciais, IDs ou `lab_role_arn` deste histórico.
+
 Este guia descreve, sem etapas implícitas, como validar a solução da Semana 3 no Windows com PowerShell, HCP Terraform e AWS Academy. Ele cobre os quatro repositórios, credenciais temporárias, infraestrutura, banco, backend, autenticação por CPF, API Gateway, Lambda Authorizer, JWT RSA, histórico da ordem de serviço e segurança.
 
 ## Antes de começar: escolha o tipo de validação
@@ -280,7 +282,7 @@ Abra `oficina-kubernetes-homolog → Variables → Terraform variables` e confir
 |---|---|---:|---:|
 | `aws_region` | `us-west-2` | não | não |
 | `environment` | `homolog` | não | não |
-| `lab_role_arn` | `arn:aws:iam::269023862684:role/LabRole` | não | não |
+| `lab_role_arn` | `arn:aws:iam::<AWS_ACCOUNT_ID>:role/LabRole` | não | não |
 | `cluster_version` | `1.34` | não | não |
 
 As demais variáveis podem usar os defaults de `variables.tf`. O ARN deve começar com `arn:aws:`; `aws:iam::...` está incorreto.
@@ -925,7 +927,7 @@ Renove `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN` nas **
 |---|---|---:|---:|
 | `aws_region` | `us-west-2` | não | não |
 | `environment` | `homolog` | não | não |
-| `lab_role_arn` | `arn:aws:iam::269023862684:role/LabRole` | não | não |
+| `lab_role_arn` | `arn:aws:iam::<AWS_ACCOUNT_ID>:role/LabRole` | não | não |
 | `private_subnet_ids` | conteúdo de `$privateSubnetsJson` | sim | não |
 | `lambda_security_group_id` | valor de `$eksSecurityGroupId` | não | não |
 | `db_url` | valor de `$authJdbcUrl` | não | sim |
@@ -1295,7 +1297,7 @@ Não guarde prints de:
 | `InvalidClientTokenId` | credenciais misturadas ou incorretas | copie novamente as três credenciais da mesma sessão |
 | organização HCP não encontrada | placeholder ou nome incorreto | use `oficina-fiap-soat-fase-2` sem `<` e `>` |
 | `-reconfigure` inválido | opção incompatível com `cloud {}` | execute `terraform init -input=false` sem `-reconfigure` |
-| ARN da LabRole inválido | prefixo `arn:` ausente | use `arn:aws:iam::269023862684:role/LabRole` |
+| ARN da LabRole inválido | prefixo `arn:` ausente | use `arn:aws:iam::<AWS_ACCOUNT_ID>:role/LabRole` |
 | JAR da Lambda não encontrado | autenticação não empacotada | execute `./mvnw.cmd -B -DskipTests package` na raiz do auth |
 | kubectl `Unauthorized` | credencial local antiga | renove `~/.aws/credentials`, valide STS e atualize kubeconfig |
 | `ImagePullBackOff` | pacote GHCR não legível | torne o pacote legível ou configure `imagePullSecret` |

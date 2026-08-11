@@ -46,6 +46,8 @@ crash.log
 *.tfvars
 !*.tfvars.example
 
-# Chaves locais
+# Chaves e contexto locais
 *.pem
 *.key
+*.clixml
+environment-context.ps1

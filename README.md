@@ -79,6 +79,18 @@ Serviços locais:
 
 O `verify` executa testes unitários, testes de integração, ArchUnit e o gate de cobertura JaCoCo do domínio.
 
+## Preparar homologação ou produção
+
+Com os quatro repositórios clonados como diretórios irmãos, copie o bloco `[default]` do AWS Academy e execute:
+
+```powershell
+.\scripts\configure-environment.ps1 -Environment homolog
+# ou
+.\scripts\configure-environment.ps1 -Environment production
+```
+
+O script renova AWS CLI, HCP Terraform e GitHub Environments, preserva secrets fora do Git e sincroniza outputs entre os states. Ele não executa apply ou deploy. Consulte o [guia geral](docs/validation/general-project.md).
+
 ## Documentação
 
 - [Índice da documentação](docs/README.md)
