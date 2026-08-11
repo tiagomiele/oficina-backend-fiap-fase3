@@ -105,125 +105,99 @@ Resultado esperado: os quatro comandos `git status --short` não exibem arquivos
 
 ---
 
-## 3. Entender onde as credenciais AWS devem ser atualizadas
+## 3. Preparação automática dos ambientes
 
-As credenciais temporárias precisam ser copiadas separadamente para cada local que acessará a AWS.
+### 3.1 Configuração inicial única
 
-| Local | Quando atualizar |
+No computador Windows, autentique uma única vez:
+
+```powershell
+terraform login
+gh auth login
+```
+
+Mantenha os quatro repositórios como irmãos em `C:\fiap-fase3`. O script central está no backend e nunca executa `terraform apply`, `terraform destroy`, Helm ou deploy.
+
+Secrets estáveis são armazenados fora dos repositórios em `C:\fiap-secrets\oficina-<ambiente>`:
+
+- senha do RDS, senha administrativa e secret HMAC em CLIXML protegido pelo usuário do Windows;
+- par RSA em arquivos PEM locais;
+- nenhum desses arquivos deve ser versionado, copiado para prints ou exibido em logs.
+
+Na primeira execução de um ambiente, informe os valores atuais já usados pela infraestrutura. Pressione Enter para gerar um valor novo somente quando o ambiente ainda não tiver sido criado.
+
+### 3.2 Renovar a sessão do AWS Academy uma única vez
+
+1. inicie o Learner Lab e aguarde o indicador verde;
+2. abra **AWS Details** e copie o bloco `[default]` completo para o clipboard, ou salve-o em um arquivo fora dos repositórios;
+3. valide acessos sem alterar arquivos, HCP ou GitHub:
+
+```powershell
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment homolog -ValidateOnly
+```
+
+4. execute para o ambiente desejado:
+
+```powershell
+.\scripts\configure-environment.ps1 -Environment homolog
+```
+
+Alternativa com arquivo:
+
+```powershell
+.\scripts\configure-environment.ps1 `
+  -Environment production `
+  -AwsCredentialsFile "$HOME\Downloads\credentials"
+```
+
+O script lê as três credenciais uma única vez, valida `aws sts get-caller-identity`, salva os outputs não sensíveis em `environment-context.ps1` e atualiza automaticamente:
+
+- o perfil local do AWS CLI;
+- o Variable Set HCP `aws-academy-credentials`, associado aos seis workspaces AWS de homologação e produção;
+- os secrets dos GitHub Environments `homolog` e `production` dos quatro repositórios;
+- o token e as variáveis fixas dos GitHub Environments;
+- secrets estáveis do ambiente selecionado;
+- variáveis dinâmicas que já possuam outputs disponíveis.
+
+Variáveis AWS diretas nos workspaces são removidas para não sobrescrever o Variable Set compartilhado. O ARN da `LabRole` é calculado pelos módulos com `aws_caller_identity`; ele não é mais cadastrado manualmente.
+
+### 3.3 Sincronização idempotente de outputs
+
+Reexecute o mesmo comando, sem copiar IDs, após cada marco:
+
+```powershell
+.\scripts\configure-environment.ps1 -Environment homolog
+```
+
+| Depois de | O script propaga |
 |---|---|
-| HCP `oficina-kubernetes-homolog` | antes de plan ou apply do EKS |
-| HCP `oficina-database-homolog` | antes de plan ou apply do RDS |
-| HCP `oficina-auth-homolog` | antes de plan ou apply da autenticação |
-| GitHub Environment `homolog` do backend | antes do deploy no EKS |
-| computador local | antes de executar AWS CLI ou kubectl |
+| apply do Kubernetes | VPC, subnets privadas e security group para banco e autenticação |
+| apply do RDS | URL JDBC e credenciais para autenticação e backend |
+| deploy do backend | URL do LoadBalancer para autenticação, health check e backend |
+| apply da autenticação | URL do API Gateway para o backend |
 
-Atualizar um workspace HCP não atualiza os demais. Atualizar o HCP também não atualiza o GitHub nem o computador local.
+Se um output ainda não existir, o script emite aviso e preserva o restante da configuração. Ele não inventa IDs, não usa valores de uma sessão anterior e pode ser reexecutado com segurança.
 
-### 3.1 Obter credenciais novas no AWS Academy
+### 3.4 New Relic
 
-1. Abra o AWS Academy Learner Lab.
-2. Clique em **Start Lab**.
-3. Aguarde o indicador da AWS ficar verde.
-4. Clique em **AWS Details**.
-5. Na seção **AWS CLI**, clique em **Show**.
-6. Mantenha essa tela aberta somente durante a configuração.
-7. Não envie uma captura dessa tela e não copie os valores para o repositório.
-
-Os três valores necessários são:
-
-```text
-AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY
-AWS_SESSION_TOKEN
-```
-
-### 3.2 Atualizar um workspace HCP Terraform
-
-Repita este procedimento no workspace que será usado naquele momento:
-
-1. Acesse https://app.terraform.io/.
-2. Abra a organização `oficina-fiap-soat-fase-2`.
-3. Abra o projeto `soat-fase3`.
-4. Abra o workspace desejado.
-5. Clique em **Variables**.
-6. Localize a seção **Environment variables**.
-7. Edite `AWS_ACCESS_KEY_ID` e cole o valor novo.
-8. Edite `AWS_SECRET_ACCESS_KEY` e cole o valor novo.
-9. Edite `AWS_SESSION_TOKEN` e cole o valor novo.
-10. Marque as três variáveis como **Sensitive**.
-11. Salve cada alteração.
-12. Confirme que não existe uma segunda variável com o mesmo nome.
-
-Se uma variável não existir, clique em **Add variable**, escolha **Environment variable**, informe o nome exato, cole o valor e marque **Sensitive**.
-
-### 3.3 Erro `ExpiredToken`
-
-O erro abaixo não é problema do Terraform:
-
-```text
-ExpiredToken: The security token included in the request is expired
-```
-
-Correção:
-
-1. inicie uma sessão nova do Learner Lab;
-2. obtenha as três credenciais novas;
-3. atualize as três variáveis no workspace que executou o run;
-4. descarte o run com falha;
-5. execute novamente `terraform plan`.
-
-Não é necessário repetir `terraform init` depois de apenas renovar as credenciais.
-
-### 3.4 Configurar as credenciais no computador local
-
-Esta etapa só é necessária antes de usar AWS CLI ou kubectl.
-
-1. Na tela **AWS Details → AWS CLI**, copie o bloco completo iniciado por `[default]`.
-2. Abra este arquivo no Windows:
-
-```text
-C:\Users\SEU_USUARIO\.aws\credentials
-```
-
-3. Substitua o bloco `[default]` antigo pelo bloco novo.
-4. Salve o arquivo.
-5. Não coloque esse arquivo dentro de `C:\fiap-fase3`.
-6. Valide:
+Na primeira preparação do New Relic para cada ambiente, use:
 
 ```powershell
-aws sts get-caller-identity
+.\scripts\configure-environment.ps1 -Environment homolog -ConfigureNewRelic
 ```
 
-O campo `Account` deve mostrar a conta atual do Learner Lab. Um ARN contendo `assumed-role/LabRole` é esperado para a sessão; ele não substitui o ARN IAM usado pelo Terraform.
+Account ID, API key e License key são solicitados somente na primeira configuração e reutilizados para homologação e produção a partir de `C:\fiap-secrets\shared`, sem impressão dos valores. A versão pública da camada Java ARM64 é descoberta automaticamente na AWS.
 
-### 3.5 Variáveis do PowerShell não são permanentes
+### 3.5 Limitação inevitável
 
-Variáveis como `$vpcId`, `$dbHost` e `$backendUrl` existem somente na janela atual do PowerShell. Se fechar a janela, recupere os valores depois que os recursos estiverem aplicados:
+As credenciais do Learner Lab expiram. A cada nova sessão, copie o novo bloco `[default]` e execute novamente um único comando. Não é necessário abrir individualmente nenhum workspace HCP ou GitHub Environment.
+
+Quando comandos de validação deste guia precisarem de `$dbHost`, `$jdbcUrl`, `$backendUrl`, `$authUrl` ou outros outputs, carregue o contexto persistente:
 
 ```powershell
-Set-Location C:\fiap-fase3\oficina-kubernetes-infra-fiap-fase3
-$env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
-$env:TF_WORKSPACE = 'oficina-kubernetes-homolog'
-terraform init -input=false
-$vpcId = terraform output -raw vpc_id
-$eksClusterName = terraform output -raw eks_cluster_name
-$eksSecurityGroupId = terraform output -raw eks_cluster_security_group_id
-$privateSubnetsJson = terraform output -json private_subnet_ids
-
-Set-Location C:\fiap-fase3\oficina-database-infra-fiap-fase3
-$env:TF_WORKSPACE = 'oficina-database-homolog'
-terraform init -input=false
-$dbHost = terraform output -raw database_endpoint
-$dbPort = terraform output -raw database_port
-$dbName = terraform output -raw database_name
-$jdbcUrl = terraform output -raw jdbc_url
-$authJdbcUrl = "$jdbcUrl`?sslmode=require"
-
-$backendHost = kubectl get service oficina-app -n oficina-homolog -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-$backendUrl = "http://$backendHost"
+. C:\fiap-secrets\oficina-homolog\environment-context.ps1
 ```
-
-Execute apenas os blocos correspondentes aos recursos que já foram criados. Senhas e tokens não são recuperados por esses comandos; mantenha-os no gerenciador de senhas.
 
 ---
 
@@ -272,20 +246,11 @@ terraform fmt -check -recursive
 
 As duas buscas devem exibir `1.34` e a formatação deve terminar sem erro. A validação Terraform será executada depois do `init`, na seção 5.3.
 
-### 5.2 Configurar as Terraform variables do workspace
+### 5.2 Configurar o workspace sem cadastro manual
 
-Abra `oficina-kubernetes-homolog → Variables → Terraform variables` e confirme:
+Execute a seção 3.2. O script mantém apenas `environment=homolog` no workspace. Região, versão do EKS e demais valores econômicos vêm dos defaults versionados; a `LabRole` é derivada automaticamente da conta autenticada.
 
-| Chave | Valor | HCL | Sensitive |
-|---|---|---:|---:|
-| `aws_region` | `us-west-2` | não | não |
-| `environment` | `homolog` | não | não |
-| `lab_role_arn` | `arn:aws:iam::269023862684:role/LabRole` | não | não |
-| `cluster_version` | `1.34` | não | não |
-
-As demais variáveis podem usar os defaults de `variables.tf`. O ARN deve começar com `arn:aws:`; `aws:iam::...` está incorreto.
-
-Antes do plan, renove as três **Environment variables** conforme a seção 3.2.
+Não cadastre `lab_role_arn`, `private_subnet_ids` ou credenciais AWS diretamente no workspace Kubernetes. As credenciais vêm do Variable Set compartilhado, e as subnets são outputs do próprio módulo.
 
 ### 5.3 Executar o plan
 
@@ -345,30 +310,24 @@ terraform apply
 
 Não use `-auto-approve`.
 
-### 5.5 Obter os outputs do Kubernetes
+### 5.5 Validar e sincronizar os outputs
 
 Após o apply:
 
 ```powershell
 terraform output
-$vpcId = terraform output -raw vpc_id
-$eksClusterName = terraform output -raw eks_cluster_name
-$eksSecurityGroupId = terraform output -raw eks_cluster_security_group_id
-$privateSubnetsJson = terraform output -json private_subnet_ids
-
-$vpcId
-$eksClusterName
-$eksSecurityGroupId
-$privateSubnetsJson
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment homolog
 ```
 
-Guarde esses valores sem alterá-los. Eles serão usados no RDS, backend e autenticação.
+Não copie VPC, subnet ou security group. O segundo comando lê os outputs do state e os grava nos workspaces dependentes. Não prossiga se `terraform output` estiver vazio.
 
 ### 5.6 Configurar kubectl
 
-Renove as credenciais locais conforme a seção 3.4 e execute:
+As credenciais locais já foram renovadas pela seção 3.2. Execute:
 
 ```powershell
+. C:\fiap-secrets\oficina-homolog\environment-context.ps1
 aws eks update-kubeconfig --region us-west-2 --name $eksClusterName
 kubectl cluster-info
 kubectl get nodes
@@ -382,39 +341,13 @@ Resultado esperado: o cluster responde e os nodes ficam `Ready`. Se aparecer `Un
 
 O RDS depende dos outputs reais do Kubernetes. Não use IDs fictícios dos arquivos `*.tfvars.example`.
 
-### 6.1 Configurar as variáveis do workspace do banco
+### 6.1 Sincronizar o workspace do banco
 
-Abra `oficina-database-homolog → Variables`.
+A seção 5.5 configura automaticamente `vpc_id`, `private_subnet_ids`, `allowed_security_group_ids`, `db_password` e `environment`.
 
-Renove primeiro as três **Environment variables** AWS conforme a seção 3.2.
+Os valores fixos (`us-west-2`, PostgreSQL 16, `db.t3.micro`, nome e usuário do banco, `multi_az=false`, `deletion_protection=false` e `skip_final_snapshot=true`) são defaults versionados e não devem ser repetidos no HCP.
 
-Cadastre estas **Terraform variables**:
-
-| Chave | Valor | HCL | Sensitive |
-|---|---|---:|---:|
-| `aws_region` | `us-west-2` | não | não |
-| `environment` | `homolog` | não | não |
-| `vpc_id` | valor de `$vpcId` | não | não |
-| `private_subnet_ids` | conteúdo de `$privateSubnetsJson` | sim | não |
-| `allowed_security_group_ids` | `["VALOR_DE_$eksSecurityGroupId"]` | sim | não |
-| `db_name` | `oficina` | não | não |
-| `db_username` | `oficina_admin` | não | não |
-| `db_password` | senha forte com pelo menos 16 caracteres | não | sim |
-| `db_engine_version` | `16` | não | não |
-| `db_instance_class` | `db.t3.micro` | não | não |
-| `multi_az` | `false` | sim | não |
-| `deletion_protection` | `false` | sim | não |
-| `skip_final_snapshot` | `true` | sim | não |
-
-Para `allowed_security_group_ids`, substitua o placeholder, por exemplo:
-
-```hcl
-["sg-0123456789abcdef0"]
-```
-
-Não marque strings simples como HCL. Marque listas e booleanos como HCL.
-
-Guarde a senha do banco em um gerenciador de senhas. A mesma senha será configurada posteriormente no backend e na autenticação. Não grave a senha em arquivo `.tfvars`.
+Esses defaults econômicos são adequados apenas ao AWS Academy. Em produção real use proteção contra exclusão, snapshot final, alta disponibilidade e dimensionamento compatível.
 
 ### 6.2 Executar o plan do banco
 
@@ -448,58 +381,32 @@ terraform apply
 
 Revise o plan e digite `yes` somente se decidiu provisionar. Não use `-auto-approve`. A criação do RDS pode demorar vários minutos.
 
-### 6.4 Obter os outputs do banco
+### 6.4 Validar e sincronizar os outputs do banco
 
 Após `Apply complete`:
 
 ```powershell
-$dbHost = terraform output -raw database_endpoint
-$dbPort = terraform output -raw database_port
-$dbName = terraform output -raw database_name
-$jdbcUrl = terraform output -raw jdbc_url
-
-$dbHost
-$dbPort
-$dbName
-$jdbcUrl
+terraform output
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment homolog
 ```
 
-Para a autenticação, use SSL na URL:
-
-```powershell
-$authJdbcUrl = "$jdbcUrl`?sslmode=require"
-$authJdbcUrl
-```
-
-Não inclua usuário ou senha na URL.
+O script adiciona `sslmode=require` somente para a autenticação, mantém usuário e senha fora da URL e atualiza o GitHub Environment do backend. Não copie o endpoint manualmente.
 
 ---
 
-## 7. Gerar as chaves RSA de homologação
+## 7. Chaves RSA e secrets estáveis
 
-Crie as chaves fora dos repositórios:
+O script da seção 3 cria ou reutiliza o par RSA e os secrets estáveis em `C:\fiap-secrets\oficina-<ambiente>`. Não execute geração manual nem copie conteúdo PEM para HCP ou GitHub.
+
+Validação opcional, sem exibir a chave:
 
 ```powershell
-New-Item -ItemType Directory -Force C:\fiap-secrets\oficina-homolog
-Set-Location C:\fiap-secrets\oficina-homolog
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out jwt-private.pem
-openssl rsa -pubout -in jwt-private.pem -out jwt-public.pem
-Get-Item .\jwt-private.pem, .\jwt-public.pem
+openssl pkey -in C:\fiap-secrets\oficina-homolog\jwt-private.pem -check -noout
+openssl pkey -pubin -in C:\fiap-secrets\oficina-homolog\jwt-public.pem -text -noout
 ```
 
-Confirme:
-
-- `jwt-private.pem` começa com `-----BEGIN PRIVATE KEY-----`;
-- `jwt-public.pem` começa com `-----BEGIN PUBLIC KEY-----`;
-- os arquivos estão em `C:\fiap-secrets`, fora dos repositórios.
-
-Regras:
-
-- a Lambda de login recebe a chave privada e a pública;
-- o Lambda Authorizer recebe a chave pública;
-- o backend recebe somente a chave pública;
-- produção deve usar outro par de chaves;
-- não mostre a chave privada em prints ou vídeos.
+Se já existe infraestrutura, informe os secrets atuais na primeira execução para evitar rotação acidental. Produção usa seu próprio diretório e par RSA.
 
 ---
 
@@ -595,62 +502,26 @@ Se houver duplicidade ou status desconhecido, pare. Corrija os dados de forma co
 
 ---
 
-## 11. Configurar o GitHub Environment `homolog` do backend
+## 11. Configurar o GitHub Environment do backend
 
-Abra:
+Nenhuma variável ou secret desta seção deve ser cadastrada manualmente. O comando da seção 3 configura os environments `homolog` e `production` e sincroniza, no ambiente selecionado:
 
-1. repositório `oficina-backend-fiap-fase3` no GitHub;
-2. **Settings → Environments**;
-3. abra ou crie o environment `homolog`.
+- credenciais temporárias AWS;
+- região e nome do cluster;
+- URL, usuário e senha do banco;
+- issuer, audience e chave pública RSA;
+- secret HMAC administrativo e senha do administrador;
+- URL do backend e do API Gateway quando seus outputs existirem;
+- configuração New Relic quando `-ConfigureNewRelic` for usado.
 
-### 11.1 Environment variables
-
-Crie ou atualize:
-
-| Nome | Valor |
-|---|---|
-| `AWS_REGION` | `us-west-2` |
-| `EKS_CLUSTER_NAME` | valor de `$eksClusterName` |
-| `APP_DB_URL` | valor de `$jdbcUrl` |
-| `APP_DB_USER` | `oficina_admin` |
-| `SERVERLESS_JWT_ISSUER` | `oficina-auth-serverless` |
-| `SERVERLESS_JWT_AUDIENCE` | `oficina-backend` |
-
-### 11.2 Environment secrets
-
-Crie ou atualize:
-
-| Nome | Origem |
-|---|---|
-| `AWS_ACCESS_KEY_ID` | sessão atual do Learner Lab |
-| `AWS_SECRET_ACCESS_KEY` | sessão atual do Learner Lab |
-| `AWS_SESSION_TOKEN` | sessão atual do Learner Lab |
-| `APP_DB_PASSWORD` | mesma senha do workspace do RDS |
-| `APP_JWT_SECRET` | segredo aleatório do JWT administrativo, com pelo menos 32 caracteres |
-| `APP_ADMIN_PASSWORD` | senha forte escolhida para `admin@oficina.local` |
-| `SERVERLESS_JWT_PUBLIC_KEY` | conteúdo completo de `jwt-public.pem` |
-
-Para gerar um segredo HMAC aleatório no PowerShell:
+Antes do deploy, reexecute:
 
 ```powershell
-$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
-$bytes = New-Object byte[] 48
-$rng.GetBytes($bytes)
-[Convert]::ToBase64String($bytes)
-$rng.Dispose()
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment homolog
 ```
 
-Copie o resultado diretamente para `APP_JWT_SECRET` e não o salve no repositório.
-
-Para copiar a chave pública:
-
-```powershell
-Get-Content C:\fiap-secrets\oficina-homolog\jwt-public.pem -Raw | Set-Clipboard
-```
-
-Cole o conteúdo completo em `SERVERLESS_JWT_PUBLIC_KEY`. Não use `jwt-private.pem` no backend.
-
-As credenciais AWS do GitHub também expiram. Renove os três secrets sempre que iniciar uma nova sessão antes de executar a pipeline.
+O backend recebe somente a chave pública RSA. A chave privada permanece no diretório local protegido e no workspace da autenticação.
 
 ---
 
@@ -736,7 +607,13 @@ Resultado esperado:
 status : UP
 ```
 
-Use a URL sem `/` no final.
+Use a URL sem `/` no final. Sincronize-a automaticamente:
+
+```powershell
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment homolog
+. C:\fiap-secrets\oficina-homolog\environment-context.ps1
+```
 
 ---
 
@@ -922,44 +799,23 @@ Resultados esperados: `EM_DIAGNOSTICO` e depois `AGUARDANDO_APROVACAO`.
 
 ## 16. Configurar o workspace da autenticação
 
-Abra `oficina-auth-homolog → Variables`.
-
-### 16.1 Atualizar credenciais AWS
-
-Renove `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN` nas **Environment variables**, conforme a seção 3.2.
-
-### 16.2 Cadastrar Terraform variables
-
-| Chave | Valor | HCL | Sensitive |
-|---|---|---:|---:|
-| `aws_region` | `us-west-2` | não | não |
-| `environment` | `homolog` | não | não |
-| `lab_role_arn` | `arn:aws:iam::269023862684:role/LabRole` | não | não |
-| `private_subnet_ids` | conteúdo de `$privateSubnetsJson` | sim | não |
-| `lambda_security_group_id` | valor de `$eksSecurityGroupId` | não | não |
-| `db_url` | valor de `$authJdbcUrl` | não | sim |
-| `db_user` | `oficina_admin` | não | sim |
-| `db_password` | mesma senha do RDS | não | sim |
-| `jwt_private_key` | conteúdo completo de `jwt-private.pem` | não | sim |
-| `jwt_public_key` | conteúdo completo de `jwt-public.pem` | não | não |
-| `jwt_issuer` | `oficina-auth-serverless` | não | não |
-| `jwt_audience` | `oficina-backend` | não | não |
-| `jwt_ttl_seconds` | `900` | sim | não |
-| `backend_base_url` | valor de `$backendUrl`, sem `/` final | não | não |
-
-Para copiar as chaves:
+Não abra o formulário de variáveis para copiar outputs ou chaves. Reexecute o script central depois do Kubernetes, RDS e backend:
 
 ```powershell
-Get-Content C:\fiap-secrets\oficina-homolog\jwt-private.pem -Raw | Set-Clipboard
-# Cole em jwt_private_key e depois limpe o clipboard.
-Set-Clipboard -Value ''
-
-Get-Content C:\fiap-secrets\oficina-homolog\jwt-public.pem -Raw | Set-Clipboard
-# Cole em jwt_public_key.
-Set-Clipboard -Value ''
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment homolog
 ```
 
-Não coloque aspas adicionais ao redor do conteúdo PEM no formulário do HCP.
+Ele configura automaticamente:
+
+- credenciais AWS pelo Variable Set compartilhado;
+- `environment`;
+- subnets privadas e security group a partir do Kubernetes;
+- URL JDBC com `sslmode=require`, usuário e senha a partir do banco;
+- par RSA do diretório seguro;
+- URL do backend quando o LoadBalancer existir.
+
+Região, issuer, audience e TTL usam defaults versionados. A `LabRole` é derivada da conta AWS autenticada e não existe mais como input manual.
 
 ---
 
@@ -1019,7 +875,12 @@ $authUrl
 $apiBase
 ```
 
-Não prossiga se os outputs estiverem vazios.
+Não prossiga se os outputs estiverem vazios. Em seguida, reexecute o script central para sincronizar a URL do API Gateway com o backend:
+
+```powershell
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment homolog
+```
 
 ---
 
@@ -1300,20 +1161,37 @@ Não guarde prints de:
 
 | Erro | Causa provável | Correção |
 |---|---|---|
-| `ExpiredToken` | sessão AWS Academy expirou | renove as três credenciais no local que executou a operação |
+| `ExpiredToken` | sessão AWS Academy expirou | copie o novo bloco `[default]` e reexecute `configure-environment.ps1` uma vez |
 | `InvalidClientTokenId` | credenciais misturadas ou incorretas | copie novamente as três credenciais da mesma sessão |
 | organização HCP não encontrada | placeholder ou nome incorreto | use `oficina-fiap-soat-fase-2` sem `<` e `>` |
 | `-reconfigure` inválido | opção incompatível com `cloud {}` | execute `terraform init -input=false` sem `-reconfigure` |
-| ARN da LabRole inválido | prefixo `arn:` ausente | use `arn:aws:iam::269023862684:role/LabRole` |
 | JAR da Lambda não encontrado | autenticação não empacotada | execute `./mvnw.cmd -B -DskipTests package` na raiz do auth |
-| kubectl `Unauthorized` | credencial local antiga | renove `~/.aws/credentials`, valide STS e atualize kubeconfig |
+| kubectl `Unauthorized` | credencial local antiga | reexecute o script central, valide STS e atualize kubeconfig |
 | `ImagePullBackOff` | pacote GHCR não legível | torne o pacote legível ou configure `imagePullSecret` |
-| backend não conecta ao RDS | URL, senha ou security group incorreto | confira outputs, GitHub Environment e SG autorizado |
-| Lambda não conecta ao RDS | subnet/SG/URL incorretos | confira `private_subnet_ids`, SG do EKS e `db_url` |
+| backend não conecta ao RDS | outputs ainda não sincronizados ou senha incorreta | reexecute o script central após o apply do RDS e confira o SG autorizado |
+| Lambda não conecta ao RDS | outputs ainda não sincronizados | reexecute o script central após Kubernetes e RDS; não copie IDs manualmente |
 | migration de documento normalizado falha no índice único | documentos normalizados duplicados | corrija duplicidades antes do deploy |
 | API Gateway retorna `401/403` com token válido | issuer, audience ou chave divergentes | use exatamente o mesmo par RSA, issuer e audience |
 | propriedade retorna `404` | token pertence a outro cliente | comportamento esperado de segurança |
 | LoadBalancer sem hostname | serviço ainda provisionando | aguarde e repita a consulta do service |
+
+### 23.1 Recuperação após reset do AWS Academy
+
+Um reset pode excluir recursos AWS sem atualizar o state remoto. Não execute outro destroy e não remova recursos do state manualmente.
+
+1. renove a sessão com o script central;
+2. no repositório do componente, execute somente:
+
+```powershell
+terraform plan -refresh-only -input=false -no-color
+```
+
+3. se o plan mostrar exclusivamente `Drift detected (delete)` para recursos que o reset já removeu, execute `terraform apply -refresh-only`;
+4. confirme que `terraform state list` ficou vazio;
+5. gere um plan normal e prossiga somente se o resultado esperado for criação limpa, sem destroys;
+6. depois de cada apply, reexecute o script central para propagar os novos IDs.
+
+Os outputs de subnet do Kubernetes aceitam mapas vazios durante o refresh, evitando o `Invalid index` que antes bloqueava a reconciliação. Se o refresh mostrar qualquer recurso ainda existente, pare e revise antes de aplicar.
 
 ---
 
@@ -1335,145 +1213,42 @@ A validação só estará concluída após executar também as seções de obser
 
 ## 25. Configurar a conta e as chaves do New Relic
 
-Esta configuração não cria recursos AWS. Dashboards, alertas e monitor sintético só são criados quando houver um `terraform apply` autorizado no workspace de observabilidade.
+Esta configuração não cria recursos AWS. Dashboards, alertas e monitor sintético só são criados após `terraform apply` autorizado no workspace de observabilidade.
 
-1. Entre em https://one.newrelic.com/.
-2. Abra o menu do usuário e copie o **Account ID** numérico.
-3. Abra **Administration → API keys**.
-4. Crie ou reutilize uma **User key** com prefixo `NRAK-`; ela será usada pelo provider Terraform.
-5. Copie a **License key**; ela será usada pelos agentes e pelo `nri-bundle`.
-6. Guarde as duas chaves no gerenciador de senhas. Não as coloque em `.tfvars`, YAML, prints ou vídeo.
+1. Em https://one.newrelic.com/, obtenha o **Account ID**, uma **User API key** e uma **License key**.
+2. Crie uma única vez os workspaces `oficina-newrelic-homolog` e `oficina-newrelic-production`, com execução remota, apply manual, Auto apply desativado e Working Directory `observability/newrelic`.
+3. Execute:
 
-Crie no projeto `soat-fase3` dois workspaces HCP adicionais:
-
-```text
-oficina-newrelic-homolog
-oficina-newrelic-production
+```powershell
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment homolog -ConfigureNewRelic
 ```
 
-Em cada workspace, configure **Settings → General**:
+O script configura o workspace de observabilidade, a autenticação, o backend e o Kubernetes sem imprimir as chaves. Repita com `-Environment production` para manter secrets e nomes separados.
 
-- Execution Mode: `Remote`;
-- Apply Method: `Manual apply`;
-- Auto apply: desativado;
-- Terraform Working Directory: `observability/newrelic`;
-- Terraform: `>= 1.6` e `< 2.0`.
-
-No workspace `oficina-newrelic-homolog`, crie as Terraform variables:
-
-| Chave | Valor | HCL | Sensitive |
-|---|---|---:|---:|
-| `environment` | `homolog` | não | não |
-| `newrelic_account_id` | seu Account ID numérico | sim | não |
-| `newrelic_api_key` | User key `NRAK-...` | não | sim |
-| `observability_enabled` | `true` | sim | não |
-| `cluster_name` | valor de `$eksClusterName` | não | não |
-| `apm_application_name` | `oficina-backend-homolog` | não | não |
-| `kubernetes_namespace` | `oficina-homolog` | não | não |
-| `kubernetes_deployment_name` | `oficina-app` | não | não |
-| `api_gateway_name` | `oficina-homolog-http-api` | não | não |
-| `lambda_function_names` | `["oficina-homolog-login","oficina-homolog-authorizer"]` | sim | não |
-| `synthetic_monitor_enabled` | `false` | sim | não |
-| `health_check_url` | deixe vazio até o LoadBalancer existir | não | não |
-| `notification_enabled` | `false` | sim | não |
-
-Não habilite monitor sintético antes de existir uma URL pública de saúde.
+O monitor sintético permanece desativado enquanto a URL pública não existir. Quando o LoadBalancer responder, o script sincroniza `HEALTH_CHECK_URL` e ativa o monitor automaticamente.
 
 ## 26. Configurar os GitHub Environments para deploy controlado
 
-Nos repositórios Kubernetes e autenticação, abra **Settings → Environments** e crie, se não existirem:
+O script central cria ou atualiza os environments `homolog` e `production` nos quatro repositórios e também `homolog-apply` e `production-apply` no repositório de autenticação. Ele inclui credenciais AWS, token HCP, nomes dos workspaces, variáveis fixas e valores dinâmicos disponíveis.
 
-```text
-homolog
-production
-homolog-apply
-production-apply
+Não copie secrets ou IDs pelo formulário do GitHub. Reexecute:
+
+```powershell
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment homolog
 ```
 
-Em `homolog-apply` e `production-apply`, habilite **Required reviewers**. Produção deve aceitar somente a branch `main`; homologação deve aceitar somente `homolog`.
+Permanece uma configuração humana única, pois ela é uma regra de governança e não um valor de aplicação:
 
-### 26.1 Kubernetes — environment `homolog`
+1. habilite **Required reviewers** nos environments de apply criados pelo script;
+2. limite produção à branch `main` e homologação à branch `homolog`.
 
-Secrets:
-
-```text
-TF_API_TOKEN
-AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY
-AWS_SESSION_TOKEN
-NEW_RELIC_LICENSE_KEY
-NEW_RELIC_API_KEY
-```
-
-Variables:
-
-```text
-TF_CLOUD_ORGANIZATION=oficina-fiap-soat-fase-2
-TF_WORKSPACE_HOMOLOG=oficina-kubernetes-homolog
-TF_WORKSPACE_OBSERVABILITY_HOMOLOG=oficina-newrelic-homolog
-AWS_REGION=us-west-2
-CLUSTER_NAME=oficina-homolog
-APP_NAMESPACE=oficina-homolog
-NEW_RELIC_ACCOUNT_ID=<account-id-numérico>
-SYNTHETIC_MONITOR_ENABLED=false
-HEALTH_CHECK_URL=
-```
-
-### 26.2 Autenticação — environment `homolog`
-
-Secrets:
-
-```text
-TF_API_TOKEN
-AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY
-AWS_SESSION_TOKEN
-```
-
-Variables:
-
-```text
-TF_CLOUD_ORGANIZATION=oficina-fiap-soat-fase-2
-TF_WORKSPACE_HOMOLOG=oficina-auth-homolog
-AWS_REGION=us-west-2
-TF_APPLY_ENABLED=true
-```
-
-Use `TF_APPLY_ENABLED=true` apenas porque o workflow ainda exige a seleção manual `apply_enabled=true` e aprovação do environment `homolog-apply`. Não existe apply automático.
-
-### 26.3 Backend — environment `homolog`
-
-Além das variáveis da seção 11, crie:
-
-```text
-NEW_RELIC_ENABLED=true
-NEW_RELIC_APP_NAME=oficina-backend-homolog
-```
-
-E o secret:
-
-```text
-NEW_RELIC_LICENSE_KEY=<license-key>
-```
-
-A licença será criada como Kubernetes Secret somente durante o deploy. Nunca consulte o Secret com `-o yaml`.
+`TF_APPLY_ENABLED=true` e `ENABLE_TERRAFORM_APPLY=true` são sincronizados pelo script, mas não removem os gates: o workflow continua exigindo disparo manual, confirmação textual e aprovação do environment. Não existe apply automático.
 
 ## 27. Configurar observabilidade do RDS
 
-No workspace `oficina-database-homolog`, mantenha os defaults econômicos e confirme:
-
-| Variável | Homologação recomendada |
-|---|---|
-| `enabled_cloudwatch_logs_exports` | `["postgresql"]` em HCL |
-| `log_connections` | `true` |
-| `log_disconnections` | `true` |
-| `log_min_duration_statement_ms` | `1000` |
-| `performance_insights_enabled` | `false` |
-| `monitoring_interval` | `0` |
-| `backup_retention_period` | `1` |
-| `multi_az` | `false` |
-| `deletion_protection` | `false` somente no laboratório descartável |
-| `skip_final_snapshot` | `true` somente no laboratório descartável |
+Não cadastre variáveis de observabilidade do RDS manualmente. O módulo já define exportação do log PostgreSQL, logs de conexão/desconexão, limite de consultas lentas em 1000 ms, Performance Insights desativado, Enhanced Monitoring desativado, `multi_az = false`, `deletion_protection = false` e `skip_final_snapshot = true`. O script central define a retenção de backup em 7 dias para homologação e 14 dias para produção.
 
 Os logs registram conexões, desconexões e consultas lentas sem habilitar `log_statement` nem `log_parameter_max_length`; parâmetros, CPF e dados pessoais não devem ser enviados ao CloudWatch.
 
