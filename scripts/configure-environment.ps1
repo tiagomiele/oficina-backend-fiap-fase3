@@ -717,8 +717,11 @@ if (-not $SkipGitHub) {
     Set-GitHubSecret -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name APP_JWT_SECRET -Value $appJwtSecret
     Set-GitHubSecret -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name APP_ADMIN_PASSWORD -Value $adminPassword
     Set-GitHubSecret -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name SERVERLESS_JWT_PUBLIC_KEY -Value $jwtPublicKey
+    Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name DEPLOY_ENABLED -Value 'false'
 }
 
+$kubernetesReady = $false
+$databaseReady = $false
 $kubernetesOutputs = Get-TerraformOutputs -RepositoryPath $repositoryPaths.Kubernetes -WorkspaceName $WorkspaceNames.Kubernetes[$Environment]
 if ($null -ne $kubernetesOutputs -and
     $null -ne $kubernetesOutputs.vpc_id -and
@@ -736,6 +739,7 @@ if ($null -ne $kubernetesOutputs -and
     Set-HcpWorkspaceVariable -Workspace $databaseWorkspace -Key allowed_security_group_ids -Value (@($eksSecurityGroupId) | ConvertTo-Json -Compress) -Hcl $true
     Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key private_subnet_ids -Value ($privateSubnetIds | ConvertTo-Json -Compress) -Hcl $true
     Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key lambda_security_group_id -Value $eksSecurityGroupId
+    $kubernetesReady = $true
 
     Write-Host 'Outputs do Kubernetes sincronizados automaticamente com banco e autenticação.'
 }
@@ -762,10 +766,16 @@ if ($null -ne $databaseOutputs -and $null -ne $databaseOutputs.jdbc_url) {
     if (-not $SkipGitHub) {
         Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name APP_DB_URL -Value $jdbcUrl
     }
+    $databaseReady = $true
     Write-Host 'Output do RDS sincronizado automaticamente com autenticação e backend.'
 }
 else {
     Write-Warning 'RDS ainda não possui output. Reexecute este mesmo script após o apply do banco.'
+}
+
+if (-not $SkipGitHub -and $kubernetesReady -and $databaseReady) {
+    Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name DEPLOY_ENABLED -Value 'true'
+    Write-Host 'Deploy do backend habilitado: outputs de EKS e RDS estão disponíveis.'
 }
 
 $backendUrl = Get-KubernetesBackendUrl -EnvironmentName $Environment -ClusterName $contextValues.eksClusterName
