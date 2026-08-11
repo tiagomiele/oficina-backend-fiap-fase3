@@ -179,6 +179,8 @@ Reexecute o mesmo comando, sem copiar IDs, após cada marco:
 
 Se um output ainda não existir, o script emite aviso e preserva o restante da configuração. Ele não inventa IDs, não usa valores de uma sessão anterior e pode ser reexecutado com segurança.
 
+O GitHub Environment do backend permanece com `DEPLOY_ENABLED=false` enquanto os outputs de EKS e RDS não estiverem disponíveis. Nesse estado, merges continuam validando e publicando a imagem, mas o job de deploy termina com aviso, sem falhar e sem tentar acessar o cluster. Quando ambos os states estiverem prontos, o mesmo script grava os valores reais e altera `DEPLOY_ENABLED=true` automaticamente.
+
 ### 3.4 New Relic
 
 Na primeira preparação do New Relic para cada ambiente, use:
@@ -391,7 +393,7 @@ Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
 .\scripts\configure-environment.ps1 -Environment homolog
 ```
 
-O script adiciona `sslmode=require` somente para a autenticação, mantém usuário e senha fora da URL e atualiza o GitHub Environment do backend. Não copie o endpoint manualmente.
+O script adiciona `sslmode=require` somente para a autenticação, mantém usuário e senha fora da URL e atualiza o GitHub Environment do backend. Não copie o endpoint manualmente. Como os outputs do EKS já foram sincronizados na etapa anterior, essa execução também habilita `DEPLOY_ENABLED=true`; o próximo run do CD poderá acessar o cluster com valores reais.
 
 ---
 
@@ -1161,6 +1163,8 @@ Não guarde prints de:
 
 | Erro | Causa provável | Correção |
 |---|---|---|
+| CD informa que o deploy foi ignorado | `DEPLOY_ENABLED` está ausente ou `false` porque EKS/RDS ainda não possuem outputs | conclua os applies necessários e reexecute `configure-environment.ps1`; não cadastre a variável manualmente |
+| CD mostra `Configure no GitHub Environment` | o deploy foi habilitado, mas algum valor obrigatório foi removido depois da sincronização | reexecute `configure-environment.ps1` para restaurar secrets e variáveis reais |
 | `ExpiredToken` | sessão AWS Academy expirou | copie o novo bloco `[default]` e reexecute `configure-environment.ps1` uma vez |
 | `InvalidClientTokenId` | credenciais misturadas ou incorretas | copie novamente as três credenciais da mesma sessão |
 | organização HCP não encontrada | placeholder ou nome incorreto | use `oficina-fiap-soat-fase-2` sem `<` e `>` |
