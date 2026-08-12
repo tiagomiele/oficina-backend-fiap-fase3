@@ -97,6 +97,7 @@ $env:TF_WORKSPACE = 'original-workspace'
 $script:terraformInitExitCode = 1
 $script:terraformOutputExitCode = 1
 $script:terraformOutput = '{}'
+$script:terraformOutputError = 'Outputs unavailable.'
 $script:terraformPlatform = 'linux_amd64'
 function terraform {
     param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Arguments)
@@ -119,7 +120,7 @@ function terraform {
     }
 
     if ($script:terraformOutputExitCode -ne 0) {
-        Write-Error 'Outputs unavailable.'
+        Write-Error $script:terraformOutputError
     }
     else {
         $script:terraformOutput
@@ -172,6 +173,14 @@ if ($script:ConfigurationIssues.Count -ne 1 -or $script:ConfigurationIssues[0] -
 }
 
 $script:ConfigurationIssues.Clear()
+$script:terraformOutputError = 'Error: could not read state version outputs: resource not found'
+if ($null -ne (Get-TerraformOutputs -RepositoryPath repository -WorkspaceName empty-workspace)) {
+    throw 'Workspace without state must return null.'
+}
+if ($script:ConfigurationIssues.Count -ne 0) {
+    throw 'Workspace without state must not register a blocking issue.'
+}
+
 $script:terraformOutputExitCode = 0
 $script:terraformOutput = '{"api_base_url":{"value":"https://example.com"}}'
 $terraformOutputs = Get-TerraformOutputs -RepositoryPath repository -WorkspaceName target-workspace

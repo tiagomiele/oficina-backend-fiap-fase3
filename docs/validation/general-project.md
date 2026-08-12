@@ -133,6 +133,24 @@ git status --short
 
 Resultado esperado: os quatro comandos `git status --short` não exibem arquivos. Se houver alterações locais, não apague nem sobrescreva os arquivos; preserve o trabalho em outro local ou use um clone limpo.
 
+### 2.5 Limpar somente o cache após trocar Terraform 32 bits por x64
+
+Execute esta subseção apenas se `terraform version` mostrava `windows_386` e foi substituído por `windows_amd64`. Os diretórios `.terraform` contêm providers e metadados locais; o state permanece no HCP Terraform. Não remova nem altere `.terraform.lock.hcl`.
+
+```powershell
+$TerraformRepositories = @(
+  'C:\fiap-fase3\oficina-kubernetes-infra-fiap-fase3',
+  'C:\fiap-fase3\oficina-database-infra-fiap-fase3',
+  'C:\fiap-fase3\oficina-auth-serverless-fiap-fase3'
+)
+foreach ($Repository in $TerraformRepositories) {
+  $Cache = Join-Path $Repository '.terraform'
+  if (Test-Path $Cache) {
+    Remove-Item -Path $Cache -Recurse -Force
+  }
+}
+```
+
 ---
 
 ## 3. Preparação automática dos ambientes
