@@ -9,7 +9,7 @@ if ($errors.Count -gt 0) {
     throw ($errors | Out-String)
 }
 
-foreach ($name in @('Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables')) {
+foreach ($name in @('Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Get-TerraformOutput')) {
     $functionAst = $ast.FindAll({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -18,6 +18,23 @@ foreach ($name in @('Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables')) 
         throw "Function not found: $name"
     }
     Invoke-Expression $functionAst.Extent.Text
+}
+
+if ($null -ne (Get-TerraformOutput -Outputs $null -Name vpc_id)) {
+    throw 'Null Terraform outputs must return null.'
+}
+$emptyOutputs = '{}' | ConvertFrom-Json
+if ($null -ne (Get-TerraformOutput -Outputs $emptyOutputs -Name vpc_id)) {
+    throw 'Missing Terraform output must return null.'
+}
+$partialOutputs = '{"vpc_id":{"sensitive":false}}' | ConvertFrom-Json
+if ($null -ne (Get-TerraformOutput -Outputs $partialOutputs -Name vpc_id)) {
+    throw 'Terraform output without value must return null.'
+}
+$completeOutputs = '{"vpc_id":{"sensitive":false,"value":"vpc-123"}}' | ConvertFrom-Json
+$vpcOutput = Get-TerraformOutput -Outputs $completeOutputs -Name vpc_id
+if ($null -eq $vpcOutput -or $vpcOutput.value -ne 'vpc-123') {
+    throw 'Existing Terraform output was not returned.'
 }
 
 $script:requests = @()
@@ -100,4 +117,4 @@ if (@($script:requests | Where-Object Method -eq PATCH).Count -ne 0) {
     throw 'Changed-sensitivity Variable Set variable must not be patched.'
 }
 
-Write-Host 'HCP variable sensitivity tests passed.'
+Write-Host 'Environment automation tests passed.'
