@@ -200,6 +200,8 @@ Você copia ou salva o bloco AWS uma única vez por sessão. O script valida `aw
 
 Variáveis AWS diretas nos workspaces são removidas para não sobrescrever o Variable Set compartilhado. O ARN da `LabRole` é calculado pelos módulos com `aws_caller_identity`; ele não é mais cadastrado manualmente.
 
+Considere a preparação aprovada somente quando o comando terminar com código zero e exibir `Configuração automática concluída para <ambiente>`. Avisos de que Kubernetes, RDS ou LoadBalancer ainda não possuem outputs são esperados antes da criação desses recursos. Falha de provider, inicialização ou leitura do state termina com `Configuração incompleta`; nesse caso, não execute plan/apply, corrija a pendência exibida e repita o mesmo script.
+
 ### 3.3 Sincronização idempotente de outputs
 
 Reexecute o mesmo comando, sem copiar IDs, após cada marco:

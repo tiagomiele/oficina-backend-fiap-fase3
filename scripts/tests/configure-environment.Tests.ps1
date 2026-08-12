@@ -9,7 +9,7 @@ if ($errors.Count -gt 0) {
     throw ($errors | Out-String)
 }
 
-foreach ($name in @('Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl')) {
+foreach ($name in @('Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl')) {
     $functionAst = $ast.FindAll({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -35,6 +35,81 @@ $completeOutputs = '{"vpc_id":{"sensitive":false,"value":"vpc-123"}}' | ConvertF
 $vpcOutput = Get-TerraformOutput -Outputs $completeOutputs -Name vpc_id
 if ($null -eq $vpcOutput -or $vpcOutput.value -ne 'vpc-123') {
     throw 'Existing Terraform output was not returned.'
+}
+
+$ValidateOnly = $false
+$script:awsCalls = @()
+function aws {
+    param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Arguments)
+
+    $script:awsCalls += , @($Arguments)
+    if ($Arguments -contains 'get-caller-identity') {
+        '{"Account":"123456789012"}'
+    }
+    $global:LASTEXITCODE = 0
+}
+$testCredentials = @{
+    AWS_ACCESS_KEY_ID     = 'test-access-key'
+    AWS_SECRET_ACCESS_KEY = 'test-secret-key'
+    AWS_SESSION_TOKEN     = 'test-session-token'
+}
+Set-LocalAwsCredentials -Credentials $testCredentials
+if ($script:awsCalls.Count -ne 5) {
+    throw 'AWS credentials must configure four values and validate STS once.'
+}
+if ($ErrorActionPreference -ne 'Stop') {
+    throw 'AWS credential setup did not restore ErrorActionPreference.'
+}
+
+$script:ConfigurationIssues = [Collections.Generic.List[string]]::new()
+$TerraformOrganization = 'test-organization'
+$env:TF_CLOUD_ORGANIZATION = 'original-organization'
+$env:TF_WORKSPACE = 'original-workspace'
+$script:terraformInitExitCode = 1
+$script:terraformOutputExitCode = 1
+$script:terraformOutput = '{}'
+function terraform {
+    param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Arguments)
+
+    if ($Arguments -contains 'init') {
+        if ($script:terraformInitExitCode -ne 0) {
+            Write-Error 'Provider checksum mismatch.'
+        }
+        else {
+            'Terraform initialized.'
+        }
+        $global:LASTEXITCODE = $script:terraformInitExitCode
+        return
+    }
+
+    if ($script:terraformOutputExitCode -ne 0) {
+        Write-Error 'Outputs unavailable.'
+    }
+    else {
+        $script:terraformOutput
+    }
+    $global:LASTEXITCODE = $script:terraformOutputExitCode
+}
+
+if ($null -ne (Get-TerraformOutputs -RepositoryPath repository -WorkspaceName target-workspace)) {
+    throw 'Failed Terraform initialization must return null.'
+}
+if ($script:ConfigurationIssues.Count -ne 1) {
+    throw 'Failed Terraform initialization must register a blocking issue.'
+}
+if ($ErrorActionPreference -ne 'Stop') {
+    throw 'Terraform output lookup did not restore ErrorActionPreference.'
+}
+if ($env:TF_CLOUD_ORGANIZATION -ne 'original-organization' -or $env:TF_WORKSPACE -ne 'original-workspace') {
+    throw 'Terraform output lookup did not restore the original environment.'
+}
+
+$script:terraformInitExitCode = 0
+$script:terraformOutputExitCode = 0
+$script:terraformOutput = '{"api_base_url":{"value":"https://example.com"}}'
+$terraformOutputs = Get-TerraformOutputs -RepositoryPath repository -WorkspaceName target-workspace
+if ($terraformOutputs.api_base_url.value -ne 'https://example.com') {
+    throw 'Valid Terraform outputs were not parsed.'
 }
 
 $script:awsExitCode = 1
