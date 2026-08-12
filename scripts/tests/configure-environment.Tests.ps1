@@ -9,7 +9,7 @@ if ($errors.Count -gt 0) {
     throw ($errors | Out-String)
 }
 
-foreach ($name in @('Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl')) {
+foreach ($name in @('Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl')) {
     $functionAst = $ast.FindAll({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -19,6 +19,35 @@ foreach ($name in @('Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', '
     }
     Invoke-Expression $functionAst.Extent.Text
 }
+
+$apiException = [InvalidOperationException]::new('HTTP 400')
+$apiErrorRecord = [Management.Automation.ErrorRecord]::new(
+    $apiException,
+    'HcpApiFailure',
+    [Management.Automation.ErrorCategory]::InvalidOperation,
+    $null
+)
+$apiErrorRecord.ErrorDetails = [Management.Automation.ErrorDetails]::new('{"errors":[{"title":"invalid attribute","detail":"execution-mode is invalid","source":{"pointer":"/data/attributes/execution-mode"}}]}')
+$apiErrorDetail = Get-HcpApiErrorDetail -ErrorRecord $apiErrorRecord
+if ($apiErrorDetail -ne 'invalid attribute: execution-mode is invalid [/data/attributes/execution-mode]') {
+    throw "HCP API error detail was not preserved: $apiErrorDetail"
+}
+
+function Invoke-RestMethod {
+    throw $apiErrorRecord
+}
+$script:HcpHeaders = @{ Authorization = 'Bearer test' }
+try {
+    Invoke-HcpApi -Method PATCH -Path workspaces/ws-1 -Body @{ data = @{} } -Context 'atualizar o workspace teste'
+    throw 'HCP API failure was not propagated.'
+}
+catch {
+    $expectedMessage = 'Falha no HCP Terraform ao atualizar o workspace teste (PATCH /api/v2/workspaces/ws-1): invalid attribute: execution-mode is invalid [/data/attributes/execution-mode]'
+    if ($_.Exception.Message -ne $expectedMessage) {
+        throw "HCP API context was not preserved: $($_.Exception.Message)"
+    }
+}
+Remove-Item Function:\Invoke-RestMethod
 
 if ($null -ne (Get-TerraformOutput -Outputs $null -Name vpc_id)) {
     throw 'Null Terraform outputs must return null.'
@@ -150,14 +179,21 @@ if ($ErrorActionPreference -ne 'Stop') {
 
 $script:requests = @()
 $script:existingVariables = @()
+$script:existingSets = @()
 function Invoke-HcpApi {
-    param([string]$Method, [string]$Path, [object]$Body)
+    param([string]$Method, [string]$Path, [object]$Body, [string]$Context)
 
     if ($Method -eq 'GET') {
+        if ($Path -like 'organizations/*/varsets*') {
+            return @{ data = $script:existingSets }
+        }
         return @{ data = $script:existingVariables }
     }
-    $script:requests += [pscustomobject]@{ Method = $Method; Path = $Path; Body = $Body }
-    @{}
+    $script:requests += [pscustomobject]@{ Method = $Method; Path = $Path; Body = $Body; Context = $Context }
+    if ($null -eq $Body) {
+        return @{}
+    }
+    @{ data = $Body.data }
 }
 function Get-HcpWorkspaceVariables {
     param([string]$WorkspaceId)
@@ -165,7 +201,10 @@ function Get-HcpWorkspaceVariables {
     $script:existingVariables
 }
 
-$workspace = [pscustomobject]@{ id = 'ws-1' }
+$workspace = [pscustomobject]@{
+    id         = 'ws-1'
+    attributes = [pscustomobject]@{ name = 'workspace-1' }
+}
 $script:existingVariables = @([pscustomobject]@{
     id         = 'var-1'
     attributes = [pscustomobject]@{ key = 'TOKEN'; category = 'terraform'; sensitive = $true }
@@ -226,6 +265,69 @@ if (@($script:requests | Where-Object Method -eq POST).Count -ne 1) {
 }
 if (@($script:requests | Where-Object Method -eq PATCH).Count -ne 0) {
     throw 'Changed-sensitivity Variable Set variable must not be patched.'
+}
+
+$script:existingWorkspace = [pscustomobject]@{
+    id            = 'ws-existing'
+    attributes    = [pscustomobject]@{
+        name                = 'existing-workspace'
+        'execution-mode'    = 'remote'
+        'auto-apply'        = $false
+        'working-directory' = ''
+    }
+    relationships = [pscustomobject]@{
+        project = [pscustomobject]@{
+            data = [pscustomobject]@{ id = 'prj-1' }
+        }
+    }
+}
+function Get-HcpWorkspace {
+    param([string]$Name, [switch]$AllowMissing)
+
+    $script:existingWorkspace
+}
+$script:requests = @()
+$project = [pscustomobject]@{ id = 'prj-1' }
+$result = Initialize-HcpWorkspace -Project $project -Name existing-workspace
+if ($result.id -ne 'ws-existing' -or $script:requests.Count -ne 0) {
+    throw 'Unchanged workspace must not be patched.'
+}
+$script:existingWorkspace.attributes.'auto-apply' = $true
+$result = Initialize-HcpWorkspace -Project $project -Name existing-workspace
+$workspacePatch = $script:requests | Where-Object Method -eq PATCH | Select-Object -First 1
+if ($null -eq $workspacePatch -or $workspacePatch.Body.data.attributes.Count -ne 1 -or $workspacePatch.Body.data.attributes.'auto-apply' -ne $false) {
+    throw 'Workspace PATCH must contain only changed attributes.'
+}
+if ($workspacePatch.Body.data.ContainsKey('relationships')) {
+    throw 'Unchanged project relationship must not be sent in workspace PATCH.'
+}
+
+$script:requests = @()
+$script:existingSets = @([pscustomobject]@{
+    id         = 'varset-1'
+    attributes = [pscustomobject]@{
+        name        = 'aws-academy-credentials'
+        description = 'Credenciais temporárias compartilhadas do AWS Academy. Gerenciado pelo script central.'
+        global      = $false
+        priority    = $false
+    }
+})
+$script:existingVariables = @(
+    [pscustomobject]@{ id = 'access'; attributes = [pscustomobject]@{ key = 'AWS_ACCESS_KEY_ID'; category = 'env'; sensitive = $true } },
+    [pscustomobject]@{ id = 'secret'; attributes = [pscustomobject]@{ key = 'AWS_SECRET_ACCESS_KEY'; category = 'env'; sensitive = $true } },
+    [pscustomobject]@{ id = 'session'; attributes = [pscustomobject]@{ key = 'AWS_SESSION_TOKEN'; category = 'env'; sensitive = $true } }
+)
+Set-AwsVariableSet -Workspaces @($workspace) -Credentials $testCredentials
+$associationRequest = $script:requests | Where-Object Path -eq 'varsets/varset-1/relationships/workspaces'
+if ($null -eq $associationRequest -or $associationRequest.Method -ne 'POST') {
+    throw 'Existing Variable Set must use the workspace relationship endpoint.'
+}
+if (@($associationRequest.Body.data).Count -ne 1 -or $associationRequest.Body.data[0].id -ne 'ws-1' -or $associationRequest.Body.data[0].type -ne 'workspaces') {
+    throw 'Variable Set workspace relationship payload is invalid.'
+}
+$metadataPatch = $script:requests | Where-Object { $_.Path -eq 'varsets/varset-1' -and $_.Method -eq 'PATCH' }
+if ($null -ne $metadataPatch) {
+    throw 'Unchanged Variable Set metadata must not be patched.'
 }
 
 Write-Host 'Environment automation tests passed.'
