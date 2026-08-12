@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateSet('homolog', 'production')]
     [string]$Environment = 'homolog',
@@ -15,6 +15,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$script:ConfigurationIssues = [Collections.Generic.List[string]]::new()
 if ($ConfigureNewRelic -and $DisableObservability) {
     throw 'Use somente um parâmetro: ConfigureNewRelic ou DisableObservability.'
 }
@@ -539,15 +540,32 @@ function Set-LocalAwsCredentials {
     $env:AWS_SESSION_TOKEN = $Credentials.AWS_SESSION_TOKEN
     $env:AWS_DEFAULT_REGION = 'us-west-2'
 
-    if (-not $ValidateOnly) {
-        & aws configure set aws_access_key_id $Credentials.AWS_ACCESS_KEY_ID | Out-Null
-        & aws configure set aws_secret_access_key $Credentials.AWS_SECRET_ACCESS_KEY | Out-Null
-        & aws configure set aws_session_token $Credentials.AWS_SESSION_TOKEN | Out-Null
-        & aws configure set region us-west-2 | Out-Null
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        if (-not $ValidateOnly) {
+            $configureCommands = @(
+                @('configure', 'set', 'aws_access_key_id', $Credentials.AWS_ACCESS_KEY_ID),
+                @('configure', 'set', 'aws_secret_access_key', $Credentials.AWS_SECRET_ACCESS_KEY),
+                @('configure', 'set', 'aws_session_token', $Credentials.AWS_SESSION_TOKEN),
+                @('configure', 'set', 'region', 'us-west-2')
+            )
+            foreach ($command in $configureCommands) {
+                & aws @command 2>&1 | Out-Null
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Falha ao executar: aws $($command[0..2] -join ' ')"
+                }
+            }
+        }
+
+        $identityOutput = @(& aws sts get-caller-identity --output json 2>&1)
+        $identityExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
     }
 
-    $identityOutput = & aws sts get-caller-identity --output json 2>&1
-    if ($LASTEXITCODE -ne 0) {
+    if ($identityExitCode -ne 0) {
         throw "As credenciais AWS não foram aceitas: $($identityOutput -join ' ')"
     }
 
@@ -606,25 +624,44 @@ function Get-TerraformOutputs {
 
     $previousOrganization = $env:TF_CLOUD_ORGANIZATION
     $previousWorkspace = $env:TF_WORKSPACE
+    $previousErrorActionPreference = $ErrorActionPreference
     try {
         $env:TF_CLOUD_ORGANIZATION = $TerraformOrganization
         $env:TF_WORKSPACE = $WorkspaceName
+        $ErrorActionPreference = 'Continue'
 
-        & terraform "-chdir=$RepositoryPath" init -input=false -lockfile=readonly | Out-Host
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Não foi possível inicializar $WorkspaceName. Os outputs serão sincronizados após o apply."
+        $initOutput = @(& terraform "-chdir=$RepositoryPath" init -input=false -lockfile=readonly 2>&1)
+        $initExitCode = $LASTEXITCODE
+        if ($initExitCode -ne 0) {
+            $detail = ($initOutput | Select-Object -Last 3) -join ' '
+            $message = "Não foi possível inicializar $WorkspaceName. Detalhe: $detail"
+            $script:ConfigurationIssues.Add($message)
+            Write-Warning "$message Corrija o repositório antes do plan/apply."
+            return $null
+        }
+        $initOutput | Out-Host
+
+        $output = @(& terraform "-chdir=$RepositoryPath" output -json 2>&1)
+        $outputExitCode = $LASTEXITCODE
+        if ($outputExitCode -ne 0) {
+            $message = "Não foi possível ler os outputs do workspace $WorkspaceName."
+            $script:ConfigurationIssues.Add($message)
+            Write-Warning "$message Não execute plan/apply antes de corrigir essa leitura."
             return $null
         }
 
-        $output = & terraform "-chdir=$RepositoryPath" output -json
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Workspace $WorkspaceName ainda não possui outputs disponíveis."
+        try {
+            ($output -join [Environment]::NewLine) | ConvertFrom-Json
+        }
+        catch {
+            $message = "Workspace $WorkspaceName retornou outputs inválidos."
+            $script:ConfigurationIssues.Add($message)
+            Write-Warning "$message Não execute plan/apply antes de corrigir essa leitura."
             return $null
         }
-
-        ($output -join [Environment]::NewLine) | ConvertFrom-Json
     }
     finally {
+        $ErrorActionPreference = $previousErrorActionPreference
         $env:TF_CLOUD_ORGANIZATION = $previousOrganization
         $env:TF_WORKSPACE = $previousWorkspace
     }
@@ -706,7 +743,12 @@ if ([string]::IsNullOrWhiteSpace($RepositoriesRoot)) {
     $RepositoriesRoot = Split-Path $backendRoot -Parent
 }
 if ([string]::IsNullOrWhiteSpace($SecretsRoot)) {
-    $SecretsRoot = 'C:\fiap-secrets'
+    $SecretsRoot = if ($env:OS -eq 'Windows_NT') {
+        'C:\fiap-secrets'
+    }
+    else {
+        Join-Path $HOME '.oficina-secrets'
+    }
 }
 $script:SecretsDirectory = Join-Path $SecretsRoot "oficina-$Environment"
 if (-not $ValidateOnly) {
@@ -1006,9 +1048,17 @@ if ($ConfigureNewRelic) {
     $licenseKey = Get-StoredSecret -Name 'newrelic-license-key' -Prompt 'New Relic License key' -Directory $sharedSecretsDirectory
     $newRelicWorkspace = Get-HcpWorkspace $WorkspaceNames.NewRelic[$Environment]
     $newRelicLayerArn = 'arn:aws:lambda:us-west-2:451483290750:layer:NewRelicAgentJavaARM64-slim'
-    $newRelicLayerOutput = @(& aws lambda list-layer-versions --layer-name $newRelicLayerArn --query 'LayerVersions[0].Version' --output text 2>$null)
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $newRelicLayerOutput = @(& aws lambda list-layer-versions --layer-name $newRelicLayerArn --query 'LayerVersions[0].Version' --output text 2>&1)
+        $newRelicLayerExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     $newRelicLayerVersion = ($newRelicLayerOutput -join '').Trim()
-    if ($LASTEXITCODE -ne 0 -or $newRelicLayerVersion -notmatch '^\d+$') {
+    if ($newRelicLayerExitCode -ne 0 -or $newRelicLayerVersion -notmatch '^\d+$') {
         throw 'Não foi possível descobrir a versão atual da camada Java ARM64 do New Relic em us-west-2.'
     }
 
@@ -1051,6 +1101,14 @@ if ($ConfigureNewRelic) {
 Write-EnvironmentContext -Values $contextValues -Path $contextPath
 
 Write-Host ''
+if ($script:ConfigurationIssues.Count -gt 0) {
+    Write-Warning "A configuração terminou com $($script:ConfigurationIssues.Count) pendência(s) técnica(s):"
+    foreach ($issue in $script:ConfigurationIssues) {
+        Write-Warning "- $issue"
+    }
+    throw 'Configuração incompleta. Corrija as pendências acima e reexecute este mesmo comando antes de qualquer plan/apply.'
+}
+
 Write-Host "Configuração automática concluída para $Environment."
 Write-Host 'Credenciais AWS: computador local, HCP Terraform e GitHub Environments atualizados.'
 Write-Host "Contexto não sensível salvo em $contextPath"
