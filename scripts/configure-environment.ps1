@@ -655,17 +655,27 @@ function Get-KubernetesBackendUrl {
         [Parameter(Mandatory)][string]$ClusterName
     )
 
-    & aws eks update-kubeconfig --region us-west-2 --name $ClusterName 2>$null | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        return $null
+    $previousErrorActionPreference = $ErrorActionPreference
+    $awsExitCode = 1
+    $kubectlExitCode = 1
+    $hostname = $null
+    try {
+        $ErrorActionPreference = 'Continue'
+        & aws eks update-kubeconfig --region us-west-2 --name $ClusterName 2>$null | Out-Null
+        $awsExitCode = $LASTEXITCODE
+        if ($awsExitCode -eq 0) {
+            $namespace = "oficina-$EnvironmentName"
+            $hostname = & kubectl get service oficina-app -n $namespace -o 'jsonpath={.status.loadBalancer.ingress[0].hostname}' 2>$null
+            $kubectlExitCode = $LASTEXITCODE
+        }
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
     }
 
-    $namespace = "oficina-$EnvironmentName"
-    $hostname = & kubectl get service oficina-app -n $namespace -o 'jsonpath={.status.loadBalancer.ingress[0].hostname}' 2>$null
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($hostname)) {
+    if ($awsExitCode -ne 0 -or $kubectlExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($hostname)) {
         return $null
     }
-
     "http://$hostname"
 }
 
@@ -931,7 +941,12 @@ if (-not $SkipGitHub -and $kubernetesReady -and $databaseReady) {
     Write-Host 'Deploy do backend habilitado: outputs de EKS e RDS estão disponíveis.'
 }
 
-$backendUrl = Get-KubernetesBackendUrl -EnvironmentName $Environment -ClusterName $contextValues.eksClusterName
+$backendUrl = if ($kubernetesReady) {
+    Get-KubernetesBackendUrl -EnvironmentName $Environment -ClusterName $contextValues.eksClusterName
+}
+else {
+    $null
+}
 if (-not [string]::IsNullOrWhiteSpace($backendUrl)) {
     $contextValues['backendUrl'] = $backendUrl
     Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key backend_base_url -Value $backendUrl

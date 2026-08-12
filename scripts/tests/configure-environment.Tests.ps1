@@ -9,7 +9,7 @@ if ($errors.Count -gt 0) {
     throw ($errors | Out-String)
 }
 
-foreach ($name in @('Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Get-TerraformOutput')) {
+foreach ($name in @('Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl')) {
     $functionAst = $ast.FindAll({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -35,6 +35,42 @@ $completeOutputs = '{"vpc_id":{"sensitive":false,"value":"vpc-123"}}' | ConvertF
 $vpcOutput = Get-TerraformOutput -Outputs $completeOutputs -Name vpc_id
 if ($null -eq $vpcOutput -or $vpcOutput.value -ne 'vpc-123') {
     throw 'Existing Terraform output was not returned.'
+}
+
+$script:awsExitCode = 1
+$script:kubectlExitCode = 1
+$script:loadBalancerHostname = $null
+function aws {
+    if ($script:awsExitCode -ne 0) {
+        Write-Error 'EKS cluster was not found.'
+    }
+    $global:LASTEXITCODE = $script:awsExitCode
+}
+function kubectl {
+    if ($script:kubectlExitCode -ne 0) {
+        Write-Error 'Kubernetes service was not found.'
+    }
+    else {
+        $script:loadBalancerHostname
+    }
+    $global:LASTEXITCODE = $script:kubectlExitCode
+}
+
+if ($null -ne (Get-KubernetesBackendUrl -EnvironmentName homolog -ClusterName oficina-homolog)) {
+    throw 'Missing EKS cluster must return null.'
+}
+$script:awsExitCode = 0
+if ($null -ne (Get-KubernetesBackendUrl -EnvironmentName homolog -ClusterName oficina-homolog)) {
+    throw 'Missing Kubernetes service must return null.'
+}
+$script:kubectlExitCode = 0
+$script:loadBalancerHostname = 'backend.example.com'
+$backendUrl = Get-KubernetesBackendUrl -EnvironmentName homolog -ClusterName oficina-homolog
+if ($backendUrl -ne 'http://backend.example.com') {
+    throw 'Existing LoadBalancer hostname was not returned.'
+}
+if ($ErrorActionPreference -ne 'Stop') {
+    throw 'ErrorActionPreference was not restored.'
 }
 
 $script:requests = @()
