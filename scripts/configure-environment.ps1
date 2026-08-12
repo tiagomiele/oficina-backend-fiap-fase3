@@ -316,13 +316,27 @@ function Set-HcpWorkspaceVariable {
 
     if ($null -eq $existing) {
         Invoke-HcpApi -Method POST -Path "workspaces/$($Workspace.id)/vars" -Body $payload | Out-Null
+        return
+    }
+
+    if ([bool]$existing.attributes.sensitive -ne $Sensitive) {
+        foreach ($variable in $matchingVariables) {
+            Invoke-HcpApi -Method DELETE -Path "workspaces/$($Workspace.id)/vars/$($variable.id)" | Out-Null
+        }
+        Invoke-HcpApi -Method POST -Path "workspaces/$($Workspace.id)/vars" -Body $payload | Out-Null
+        return
+    }
+
+    $payload.data.id = $existing.id
+    if ($Sensitive) {
+        $payload.data.attributes = @{ value = $Value }
     }
     else {
-        $payload.data.id = $existing.id
-        Invoke-HcpApi -Method PATCH -Path "workspaces/$($Workspace.id)/vars/$($existing.id)" -Body $payload | Out-Null
-        foreach ($duplicateVariable in $matchingVariables | Select-Object -Skip 1) {
-            Invoke-HcpApi -Method DELETE -Path "workspaces/$($Workspace.id)/vars/$($duplicateVariable.id)" | Out-Null
-        }
+        $payload.data.attributes.Remove('sensitive')
+    }
+    Invoke-HcpApi -Method PATCH -Path "workspaces/$($Workspace.id)/vars/$($existing.id)" -Body $payload | Out-Null
+    foreach ($duplicateVariable in $matchingVariables | Select-Object -Skip 1) {
+        Invoke-HcpApi -Method DELETE -Path "workspaces/$($Workspace.id)/vars/$($duplicateVariable.id)" | Out-Null
     }
 }
 
@@ -359,7 +373,26 @@ function Set-HcpVariableSetVariables {
         }
 
         $primaryVariable = $matchingVariables[0]
-        $payload.data.id = $primaryVariable.id
+        if ([bool]$primaryVariable.attributes.sensitive -ne [bool]$definition.attributes.sensitive) {
+            foreach ($variable in $matchingVariables) {
+                Invoke-HcpApi -Method DELETE -Path "varsets/$VariableSetId/relationships/vars/$($variable.id)" | Out-Null
+            }
+            Invoke-HcpApi -Method POST -Path "varsets/$VariableSetId/relationships/vars" -Body $payload | Out-Null
+            continue
+        }
+
+        $attributes = if ([bool]$definition.attributes.sensitive) {
+            @{ value = $definition.attributes.value }
+        }
+        else {
+            $definition.attributes.Clone()
+        }
+        $attributes.Remove('sensitive')
+        $payload.data = @{
+            type       = $definition.type
+            id         = $primaryVariable.id
+            attributes = $attributes
+        }
         Invoke-HcpApi -Method PATCH -Path "varsets/$VariableSetId/relationships/vars/$($primaryVariable.id)" -Body $payload | Out-Null
         foreach ($duplicateVariable in $matchingVariables | Select-Object -Skip 1) {
             Invoke-HcpApi -Method DELETE -Path "varsets/$VariableSetId/relationships/vars/$($duplicateVariable.id)" | Out-Null

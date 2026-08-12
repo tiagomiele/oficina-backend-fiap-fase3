@@ -29,6 +29,10 @@ jobs:
       - name: Grant execute permission for mvnw
         run: chmod +x mvnw
 
+      - name: Validate PowerShell environment automation
+        shell: pwsh
+        run: ./scripts/tests/configure-environment.Tests.ps1
+
       - name: Format, build, tests and JaCoCo
         run: ./mvnw -B spotless:check verify
 
