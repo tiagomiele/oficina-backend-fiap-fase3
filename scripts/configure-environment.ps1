@@ -790,6 +790,12 @@ function Get-TerraformOutputs {
         $output = @(& terraform "-chdir=$RepositoryPath" output -json 2>&1)
         $outputExitCode = $LASTEXITCODE
         if ($outputExitCode -ne 0) {
+            $outputText = $output -join ' '
+            if ($outputText -match 'could not read state version outputs:\s*resource not found') {
+                Write-Warning "Workspace $WorkspaceName ainda não possui state. Reexecute este mesmo script após o primeiro apply."
+                return $null
+            }
+
             $detail = ($output | Select-Object -Last 8) -join ' '
             $message = "Não foi possível ler os outputs do workspace $WorkspaceName. Detalhe: $detail"
             $script:ConfigurationIssues.Add($message)
