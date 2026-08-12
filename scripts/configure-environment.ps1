@@ -4,15 +4,20 @@ param(
     [string]$Environment = 'homolog',
     [string]$RepositoriesRoot,
     [string]$TerraformOrganization = 'oficina-fiap-soat-fase-2',
+    [string]$TerraformProject = 'soat-fase3',
     [string]$AwsCredentialsFile,
     [string]$SecretsRoot,
     [switch]$ConfigureNewRelic,
+    [switch]$DisableObservability,
     [switch]$SkipGitHub,
     [switch]$ValidateOnly
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($ConfigureNewRelic -and $DisableObservability) {
+    throw 'Use somente um parâmetro: ConfigureNewRelic ou DisableObservability.'
+}
 
 $RepositoryNames = @{
     Kubernetes = 'oficina-kubernetes-infra-fiap-fase3'
@@ -192,10 +197,84 @@ function Invoke-HcpApi {
     Invoke-RestMethod @parameters
 }
 
-function Get-HcpWorkspace {
-    param([Parameter(Mandatory)][string]$Name)
+function Get-HcpProject {
+    $projects = @((Invoke-HcpApi -Method GET -Path "organizations/$TerraformOrganization/projects?page%5Bsize%5D=100").data)
+    $projects | Where-Object { $_.attributes.name -eq $TerraformProject } | Select-Object -First 1
+}
 
-    (Invoke-HcpApi -Method GET -Path "organizations/$TerraformOrganization/workspaces/$Name").data
+function Initialize-HcpProject {
+    $project = Get-HcpProject
+    if ($null -ne $project) {
+        return $project
+    }
+
+    $body = @{
+        data = @{
+            type       = 'projects'
+            attributes = @{
+                name                     = $TerraformProject
+                'default-execution-mode' = 'remote'
+            }
+        }
+    }
+    (Invoke-HcpApi -Method POST -Path "organizations/$TerraformOrganization/projects" -Body $body).data
+}
+
+function Get-HcpWorkspace {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [switch]$AllowMissing
+    )
+
+    try {
+        return (Invoke-HcpApi -Method GET -Path "organizations/$TerraformOrganization/workspaces/$Name").data
+    }
+    catch {
+        if ($AllowMissing -and $_.Exception.Response.StatusCode -eq [Net.HttpStatusCode]::NotFound) {
+            return $null
+        }
+        throw
+    }
+}
+
+function Initialize-HcpWorkspace {
+    param(
+        [Parameter(Mandatory)][object]$Project,
+        [Parameter(Mandatory)][string]$Name,
+        [string]$WorkingDirectory = ''
+    )
+
+    $workspace = Get-HcpWorkspace -Name $Name -AllowMissing
+    $attributes = @{
+        'execution-mode'    = 'remote'
+        'auto-apply'        = $false
+        'working-directory' = $WorkingDirectory
+    }
+    if ($null -eq $workspace) {
+        $attributes.name = $Name
+        $body = @{
+            data = @{
+                type          = 'workspaces'
+                attributes    = $attributes
+                relationships = @{
+                    project = @{ data = @{ type = 'projects'; id = $Project.id } }
+                }
+            }
+        }
+        return (Invoke-HcpApi -Method POST -Path "organizations/$TerraformOrganization/workspaces" -Body $body).data
+    }
+
+    $body = @{
+        data = @{
+            type          = 'workspaces'
+            id            = $workspace.id
+            attributes    = $attributes
+            relationships = @{
+                project = @{ data = @{ type = 'projects'; id = $Project.id } }
+            }
+        }
+    }
+    (Invoke-HcpApi -Method PATCH -Path "workspaces/$($workspace.id)" -Body $body).data
 }
 
 function Get-HcpWorkspaceVariables {
@@ -603,18 +682,36 @@ $script:HcpHeaders = @{ Authorization = "Bearer $terraformToken" }
 
 $hcpWorkspaces = @{}
 $awsWorkspaces = @()
-foreach ($component in @('Kubernetes', 'Database', 'Auth')) {
-    foreach ($targetEnvironment in @('homolog', 'production')) {
-        $workspaceName = $WorkspaceNames[$component][$targetEnvironment]
-        $workspace = Get-HcpWorkspace $workspaceName
-        $hcpWorkspaces[$workspaceName] = $workspace
-        $awsWorkspaces += $workspace
-    }
-}
 if ($ValidateOnly) {
-    Write-Host "Validação concluída para ${Environment}: ferramentas, repositórios, AWS STS, HCP Terraform e GitHub CLI estão acessíveis."
+    Invoke-HcpApi -Method GET -Path "organizations/$TerraformOrganization" | Out-Null
+    $missingWorkspaces = @()
+    foreach ($component in @('Kubernetes', 'Database', 'Auth', 'NewRelic')) {
+        foreach ($targetEnvironment in @('homolog', 'production')) {
+            $workspaceName = $WorkspaceNames[$component][$targetEnvironment]
+            if ($null -eq (Get-HcpWorkspace -Name $workspaceName -AllowMissing)) {
+                $missingWorkspaces += $workspaceName
+            }
+        }
+    }
+    if ($missingWorkspaces.Count -gt 0) {
+        Write-Warning "Workspaces que serão criados na execução efetiva: $($missingWorkspaces -join ', ')"
+    }
+    Write-Host "Validação concluída para ${Environment}: ferramentas, repositórios, AWS STS, organização HCP Terraform e GitHub CLI estão acessíveis."
     Write-Host 'Nenhum arquivo de credencial, Variable Set, workspace ou GitHub Environment foi alterado.'
     return
+}
+
+$hcpProject = Initialize-HcpProject
+foreach ($component in @('Kubernetes', 'Database', 'Auth', 'NewRelic')) {
+    foreach ($targetEnvironment in @('homolog', 'production')) {
+        $workspaceName = $WorkspaceNames[$component][$targetEnvironment]
+        $workingDirectory = if ($component -eq 'NewRelic') { 'observability/newrelic' } else { '' }
+        $workspace = Initialize-HcpWorkspace -Project $hcpProject -Name $workspaceName -WorkingDirectory $workingDirectory
+        $hcpWorkspaces[$workspaceName] = $workspace
+        if ($component -ne 'NewRelic') {
+            $awsWorkspaces += $workspace
+        }
+    }
 }
 Set-AwsVariableSet -Workspaces $awsWorkspaces -Credentials $credentials
 foreach ($workspace in $awsWorkspaces) {
@@ -811,6 +908,19 @@ if ($null -ne $authOutputs -and $null -ne $authOutputs.api_base_url) {
         Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name AUTH_BASE_URL -Value $apiBaseUrl
     }
     Write-Host 'URL do API Gateway sincronizada automaticamente com o backend.'
+}
+
+if ($DisableObservability) {
+    $newRelicWorkspace = $hcpWorkspaces[$WorkspaceNames.NewRelic[$Environment]]
+    Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key observability_enabled -Value 'false' -Hcl $true
+    Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key synthetic_monitor_enabled -Value 'false' -Hcl $true
+    Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key notification_enabled -Value 'false' -Hcl $true
+    Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key newrelic_instrumentation_enabled -Value 'false' -Hcl $true
+    Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key newrelic_log_forwarding_enabled -Value 'false' -Hcl $true
+    if (-not $SkipGitHub) {
+        Set-GitHubVariable -Repository $RepositoryNames.Kubernetes -EnvironmentName $Environment -Name SYNTHETIC_MONITOR_ENABLED -Value 'false'
+        Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name NEW_RELIC_ENABLED -Value 'false'
+    }
 }
 
 if ($ConfigureNewRelic) {

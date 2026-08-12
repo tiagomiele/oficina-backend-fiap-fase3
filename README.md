@@ -89,7 +89,7 @@ Com os quatro repositórios clonados como diretórios irmãos, copie o bloco `[d
 .\scripts\configure-environment.ps1 -Environment production
 ```
 
-O script renova AWS CLI, HCP Terraform e GitHub Environments, preserva secrets fora do Git e sincroniza outputs entre os states. Ele não executa apply ou deploy. O CD permanece bloqueado sem erro até existirem outputs reais de EKS e RDS; depois disso, o próprio script habilita o deploy. Consulte o [guia geral](docs/validation/general-project.md).
+O script cria/configura o projeto e os oito workspaces HCP, renova AWS CLI, Variable Set e GitHub Environments, preserva secrets fora do Git e sincroniza outputs entre os states. Ele não executa apply ou deploy. O CD permanece bloqueado sem erro até existirem outputs reais de EKS e RDS; depois disso, o próprio script habilita o deploy. Consulte o [guia geral](docs/validation/general-project.md).
 
 ## Documentação
 

@@ -25,7 +25,22 @@ Os comandos `terraform plan` não criam recursos. Os comandos `terraform apply` 
 
 ## 1. Pré-requisitos locais
 
-No PowerShell, confirme as ferramentas:
+Abra o **PowerShell como usuário normal**. Não use uma janela administrativa. Em uma máquina nova, instale as ferramentas abaixo com `winget`:
+
+```powershell
+winget install --id Git.Git -e
+winget install --id Hashicorp.Terraform -e
+winget install --id Amazon.AWSCLI -e
+winget install --id EclipseAdoptium.Temurin.21.JDK -e
+winget install --id Docker.DockerDesktop -e
+winget install --id Kubernetes.kubectl -e
+winget install --id Helm.Helm -e
+winget install --id GitHub.cli -e
+winget install --id OpenJS.NodeJS.LTS -e
+winget install --id GrafanaLabs.k6 -e
+```
+
+Feche e abra o PowerShell após as instalações. Inicie o Docker Desktop, aguarde o ícone indicar que o engine está ativo e execute:
 
 ```powershell
 git --version
@@ -34,21 +49,32 @@ aws --version
 java -version
 docker version
 kubectl version --client
-openssl version
+helm version --short
+gh --version
+node --version
+npm --version
+k6 version
+
+$OpenSsl = (Get-Command openssl -ErrorAction SilentlyContinue).Source
+if ([string]::IsNullOrWhiteSpace($OpenSsl)) {
+  $OpenSsl = Join-Path $env:ProgramFiles 'Git\usr\bin\openssl.exe'
+}
+if (-not (Test-Path $OpenSsl)) { throw 'OpenSSL não encontrado. Reinstale o Git for Windows.' }
+& $OpenSsl version
 ```
 
-Requisitos:
+Critérios obrigatórios:
 
-- Git;
 - Terraform `>= 1.6` e `< 2.0`;
-- AWS CLI;
 - Java 21;
-- Docker Desktop em execução, necessário para o teste de integração com Testcontainers;
-- kubectl compatível com Kubernetes 1.34;
-- OpenSSL;
-- acesso ao GitHub, HCP Terraform e AWS Academy Learner Lab.
+- Docker respondendo sem erro;
+- `kubectl` compatível com Kubernetes 1.34;
+- acesso de proprietário ou administrador aos quatro repositórios GitHub;
+- permissão **Manage projects** e **Manage all workspaces** na organização HCP Terraform `oficina-fiap-soat-fase-2`;
+- acesso ao AWS Academy Learner Lab;
+- conta New Relic somente para as seções de observabilidade.
 
-Se `openssl` não for reconhecido, instale o OpenSSL antes de gerar as chaves. Não substitua a geração RSA por uma chave copiada da internet.
+Não prossiga se algum comando falhar. O script usa o OpenSSL incluído no Git for Windows quando ele não está no `PATH`; nunca use uma chave copiada da internet.
 
 Confirme que os repositórios estão nestes diretórios ou adapte todos os caminhos deste guia:
 
@@ -113,8 +139,11 @@ No computador Windows, autentique uma única vez:
 
 ```powershell
 terraform login
-gh auth login
+gh auth login --hostname github.com --git-protocol https --web
+gh auth status --hostname github.com
 ```
+
+No `terraform login`, confirme `yes`, abra o endereço exibido, gere o token solicitado e cole-o no PowerShell. No GitHub CLI, conclua a autorização no navegador usando a conta com acesso aos quatro repositórios.
 
 Mantenha os quatro repositórios como irmãos em `C:\fiap-fase3`. O script central está no backend e nunca executa `terraform apply`, `terraform destroy`, Helm ou deploy.
 
@@ -130,30 +159,39 @@ Na primeira execução de um ambiente, informe os valores atuais já usados pela
 
 1. inicie o Learner Lab e aguarde o indicador verde;
 2. abra **AWS Details** e copie o bloco `[default]` completo para o clipboard, ou salve-o em um arquivo fora dos repositórios;
-3. valide acessos sem alterar arquivos, HCP ou GitHub:
+3. não copie outro texto até concluir os próximos dois comandos; ambos leem o mesmo bloco diretamente do clipboard;
+4. valide acessos sem alterar arquivos, HCP ou GitHub:
 
 ```powershell
 Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
 .\scripts\configure-environment.ps1 -Environment homolog -ValidateOnly
 ```
 
-4. execute para o ambiente desejado:
+5. execute para o ambiente desejado:
 
 ```powershell
 .\scripts\configure-environment.ps1 -Environment homolog
 ```
 
-Alternativa com arquivo:
+Alternativa com arquivo, sem depender do clipboard:
 
 ```powershell
+$CredentialsFile = "$HOME\Downloads\credentials"
 .\scripts\configure-environment.ps1 `
   -Environment production `
-  -AwsCredentialsFile "$HOME\Downloads\credentials"
+  -AwsCredentialsFile $CredentialsFile `
+  -ValidateOnly
+.\scripts\configure-environment.ps1 `
+  -Environment production `
+  -AwsCredentialsFile $CredentialsFile
 ```
 
-O script lê as três credenciais uma única vez, valida `aws sts get-caller-identity`, salva os outputs não sensíveis em `environment-context.ps1` e atualiza automaticamente:
+Você copia ou salva o bloco AWS uma única vez por sessão. O script valida `aws sts get-caller-identity`, salva os outputs não sensíveis em `environment-context.ps1` e atualiza automaticamente:
 
 - o perfil local do AWS CLI;
+- o projeto HCP `soat-fase3`, quando ainda não existir;
+- os oito workspaces HCP de Kubernetes, banco, autenticação e New Relic para homologação e produção;
+- execução remota, apply manual, Auto apply desativado e Working Directory correto dos workspaces;
 - o Variable Set HCP `aws-academy-credentials`, associado aos seis workspaces AWS de homologação e produção;
 - os secrets dos GitHub Environments `homolog` e `production` dos quatro repositórios;
 - o token e as variáveis fixas dos GitHub Environments;
@@ -189,7 +227,7 @@ Na primeira preparação do New Relic para cada ambiente, use:
 .\scripts\configure-environment.ps1 -Environment homolog -ConfigureNewRelic
 ```
 
-Account ID, API key e License key são solicitados somente na primeira configuração e reutilizados para homologação e produção a partir de `C:\fiap-secrets\shared`, sem impressão dos valores. A versão pública da camada Java ARM64 é descoberta automaticamente na AWS.
+Não crie o workspace de New Relic manualmente: a execução efetiva do script cria `oficina-newrelic-homolog` e `oficina-newrelic-production` com Working Directory `observability/newrelic`. Account ID, API key e License key são solicitados somente na primeira configuração e reutilizados para homologação e produção a partir de `C:\fiap-secrets\shared`, sem impressão dos valores. A versão pública da camada Java ARM64 é descoberta automaticamente na AWS.
 
 ### 3.5 Limitação inevitável
 
@@ -203,9 +241,9 @@ Quando comandos de validação deste guia precisarem de `$dbHost`, `$jdbcUrl`, `
 
 ---
 
-## 4. Conferir os workspaces HCP Terraform
+## 4. Conferir a criação automática no HCP Terraform
 
-No projeto HCP `soat-fase3`, devem existir:
+Depois da primeira execução **sem** `-ValidateOnly`, abra o projeto HCP `soat-fase3` e confirme estes oito workspaces:
 
 ```text
 oficina-kubernetes-homolog
@@ -214,24 +252,15 @@ oficina-database-homolog
 oficina-database-production
 oficina-auth-homolog
 oficina-auth-production
+oficina-newrelic-homolog
+oficina-newrelic-production
 ```
 
-Para criar um workspace ausente:
+Não crie variáveis pelo formulário. O script já configura execução remota, apply manual, Auto apply desativado e os Working Directories. Os seis workspaces AWS usam a raiz do respectivo repositório; os dois de New Relic usam `observability/newrelic`.
 
-1. abra o projeto `soat-fase3`;
-2. clique em **New workspace**;
-3. escolha **CLI-driven workflow**;
-4. informe exatamente o nome do workspace;
-5. conclua a criação;
-6. abra **Settings → General**;
-7. selecione **Execution Mode: Remote**;
-8. selecione **Apply Method: Manual apply**;
-9. deixe **Auto apply** desativado;
-10. deixe **Terraform Working Directory** vazio;
-11. selecione uma versão Terraform `>= 1.6` e `< 2.0`;
-12. salve.
+Se um workspace não aparecer, não prossiga. Reexecute o script sem `-ValidateOnly` e leia a mensagem de erro completa. Verifique se o token criado por `terraform login` possui acesso à organização `oficina-fiap-soat-fase-2`. Não substitua o workspace ausente por outro nome.
 
-Este guia usa somente os workspaces de homologação. Não configure nem aplique produção nesta validação.
+As seções 5 a 23 executam homologação. A sequência completa e parametrizada de produção está na seção 24.1 e só deve ser usada depois da homologação aprovada.
 
 ---
 
@@ -391,6 +420,15 @@ Após `Apply complete`:
 terraform output
 Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
 .\scripts\configure-environment.ps1 -Environment homolog
+. C:\fiap-secrets\oficina-homolog\environment-context.ps1
+```
+
+Confirme que o contexto foi carregado antes de seguir:
+
+```powershell
+if ([string]::IsNullOrWhiteSpace($dbHost)) { throw 'dbHost ausente no contexto.' }
+if ([int]$dbPort -le 0) { throw 'dbPort ausente no contexto.' }
+if ([string]::IsNullOrWhiteSpace($jdbcUrl)) { throw 'jdbcUrl ausente no contexto.' }
 ```
 
 O script adiciona `sslmode=require` somente para a autenticação, mantém usuário e senha fora da URL e atualiza o GitHub Environment do backend. Não copie o endpoint manualmente. Como os outputs do EKS já foram sincronizados na etapa anterior, essa execução também habilita `DEPLOY_ENABLED=true`; o próximo run do CD poderá acessar o cluster com valores reais.
@@ -452,7 +490,13 @@ O JAR deve existir antes de plan ou apply da autenticação, porque o Terraform 
 
 Se o RDS foi criado vazio na seção 6, não existem dados antigos e esta verificação prévia pode ser ignorada.
 
-Se você reutilizou um banco que já contém clientes ou ordens de serviço, execute esta seção antes de implantar o backend.
+Se você reutilizou um banco que já contém clientes ou ordens de serviço, execute esta seção antes de implantar o backend. Carregue novamente o contexto, mesmo que já tenha feito isso em outra seção:
+
+```powershell
+. C:\fiap-secrets\oficina-homolog\environment-context.ps1
+if ([string]::IsNullOrWhiteSpace($dbHost)) { throw 'dbHost ausente. Reexecute o script central após o apply do RDS.' }
+if ([int]$dbPort -le 0) { throw 'dbPort ausente. Reexecute o script central após o apply do RDS.' }
+```
 
 ### 10.1 Criar um cliente PostgreSQL temporário dentro do EKS
 
@@ -537,16 +581,16 @@ A pipeline publica a imagem em:
 ghcr.io/tiagomiele/oficina-backend-fiap-fase3
 ```
 
-O Deployment não configura credenciais de pull. Portanto, confirme que o pacote GHCR pode ser lido pelo cluster:
+O Deployment atual não possui `imagePullSecret`; portanto, esta entrega exige que o pacote GHCR seja público:
 
-1. abra o perfil/organização no GitHub;
-2. abra **Packages**;
-3. selecione o pacote `oficina-backend-fiap-fase3`;
-4. abra **Package settings**;
-5. confirme que a visibilidade permite pull sem autenticação pelo EKS;
-6. para este projeto acadêmico, use visibilidade pública se não houver conteúdo proprietário na imagem.
+1. abra https://github.com/tiagomiele?tab=packages;
+2. selecione `oficina-backend-fiap-fase3`;
+3. abra **Package settings**;
+4. em **Danger Zone → Change package visibility**, selecione **Public**;
+5. confirme o nome do pacote quando solicitado;
+6. abra uma janela anônima do navegador e confirme que a página do pacote pode ser acessada sem login.
 
-Se a organização exigir pacote privado, será necessário configurar um `imagePullSecret` antes do deploy; não prossiga esperando que um cluster sem credencial baixe uma imagem privada.
+Não prossiga com pacote privado: o manifesto versionado não suporta esse modo e o pod entrará em `ImagePullBackOff`. Não crie um token pessoal ou `imagePullSecret` fora do projeto apenas para contornar esta validação.
 
 ### 12.2 Executar novamente a pipeline de homologação
 
@@ -680,7 +724,13 @@ Os comandos desta seção cadastram ou reutilizam dois clientes, um veículo, um
 ### 15.1 Fazer login administrativo diretamente no backend
 
 ```powershell
-$adminPassword = Read-Host 'Digite APP_ADMIN_PASSWORD'
+$adminPasswordSecure = Read-Host 'Digite APP_ADMIN_PASSWORD' -AsSecureString
+$adminPasswordPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($adminPasswordSecure)
+try {
+  $adminPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($adminPasswordPointer)
+} finally {
+  [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($adminPasswordPointer)
+}
 $adminBody = @{
   email = 'admin@oficina.local'
   senha = $adminPassword
@@ -1072,7 +1122,7 @@ Resultado esperado: HTTP `200`. Isso comprova que o JWT administrativo HMAC cont
 Ao terminar, remova senhas e tokens da memória da sessão:
 
 ```powershell
-Remove-Variable adminPassword, adminBody, tokenOwner, tokenOther -ErrorAction SilentlyContinue
+Remove-Variable adminPassword, adminPasswordSecure, adminPasswordPointer, adminBody, tokenOwner, tokenOther -ErrorAction SilentlyContinue
 ```
 
 ---
@@ -1169,9 +1219,9 @@ Não guarde prints de:
 | `InvalidClientTokenId` | credenciais misturadas ou incorretas | copie novamente as três credenciais da mesma sessão |
 | organização HCP não encontrada | placeholder ou nome incorreto | use `oficina-fiap-soat-fase-2` sem `<` e `>` |
 | `-reconfigure` inválido | opção incompatível com `cloud {}` | execute `terraform init -input=false` sem `-reconfigure` |
-| JAR da Lambda não encontrado | autenticação não empacotada | execute `./mvnw.cmd -B -DskipTests package` na raiz do auth |
+| JAR da Lambda não encontrado | autenticação não empacotada | execute `.\mvnw.cmd -B -DskipTests package` na raiz do auth |
 | kubectl `Unauthorized` | credencial local antiga | reexecute o script central, valide STS e atualize kubeconfig |
-| `ImagePullBackOff` | pacote GHCR não legível | torne o pacote legível ou configure `imagePullSecret` |
+| `ImagePullBackOff` | pacote GHCR privado | torne o pacote público conforme a seção 12.1 e execute novamente o CD |
 | backend não conecta ao RDS | outputs ainda não sincronizados ou senha incorreta | reexecute o script central após o apply do RDS e confira o SG autorizado |
 | Lambda não conecta ao RDS | outputs ainda não sincronizados | reexecute o script central após Kubernetes e RDS; não copie IDs manualmente |
 | migration de documento normalizado falha no índice único | documentos normalizados duplicados | corrija duplicidades antes do deploy |
@@ -1213,6 +1263,121 @@ Estas regras se aplicam ao final de todas as seções deste guia; não destrua o
 
 A validação só estará concluída após executar também as seções de observabilidade, segurança, carga, evidências e limpeza adicionadas abaixo.
 
+### 24.1 Executar production depois da homologação aprovada
+
+Não reutilize variáveis do PowerShell de homologação. Produção possui state, secrets, chaves RSA, namespace e URLs próprios. Antes de começar, confirme no GitHub que a branch `homolog` validada foi promovida por PR para `main` nos quatro repositórios. Não faça push direto para `main`.
+
+Abra um PowerShell novo, inicie o Learner Lab e copie novamente o bloco `[default]` completo para o clipboard. Sem copiar outro texto, configure somente produção:
+
+```powershell
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment production -ValidateOnly
+.\scripts\configure-environment.ps1 -Environment production
+. C:\fiap-secrets\oficina-production\environment-context.ps1
+```
+
+#### 24.1.1 Kubernetes de produção
+
+```powershell
+Set-Location C:\fiap-fase3\oficina-kubernetes-infra-fiap-fase3
+git switch main
+git pull --ff-only
+$env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
+$env:TF_WORKSPACE = 'oficina-kubernetes-production'
+terraform init -input=false
+terraform fmt -check -recursive
+terraform validate -no-color
+terraform plan -input=false -no-color
+```
+
+Pare se o plan contiver exclusões inesperadas. Após autorização de custo, execute `terraform apply`, revise novamente e digite `yes`. Em seguida:
+
+```powershell
+terraform output
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment production
+```
+
+#### 24.1.2 RDS de produção
+
+```powershell
+Set-Location C:\fiap-fase3\oficina-database-infra-fiap-fase3
+git switch main
+git pull --ff-only
+$env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
+$env:TF_WORKSPACE = 'oficina-database-production'
+terraform init -input=false
+terraform fmt -check -recursive
+terraform validate -no-color
+terraform plan -input=false -no-color
+```
+
+Após revisar e autorizar o custo, execute `terraform apply` e digite `yes`. Depois sincronize e carregue o contexto:
+
+```powershell
+terraform output
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment production
+. C:\fiap-secrets\oficina-production\environment-context.ps1
+```
+
+#### 24.1.3 Backend de produção
+
+No GitHub, abra **Actions → CD → Run workflow**, selecione `main` e execute. O workflow cria uma issue de aprovação. Confira SHA e imagem na issue e comente `approved`. Aguarde `Deploy PRODUÇÃO` e valide:
+
+```powershell
+aws eks update-kubeconfig --region us-west-2 --name oficina-production
+kubectl get pods,svc,hpa -n oficina-production
+kubectl rollout status deployment/oficina-app -n oficina-production --timeout=180s
+$backendHost = $null
+for ($attempt = 1; $attempt -le 30 -and [string]::IsNullOrWhiteSpace($backendHost); $attempt++) {
+  $backendHost = kubectl get service oficina-app -n oficina-production -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+  if ([string]::IsNullOrWhiteSpace($backendHost)) { Start-Sleep -Seconds 10 }
+}
+if ([string]::IsNullOrWhiteSpace($backendHost)) { throw 'LoadBalancer de produção sem hostname após cinco minutos.' }
+Invoke-RestMethod -Method Get -Uri "http://$backendHost/actuator/health"
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment production
+```
+
+#### 24.1.4 Autenticação de produção
+
+```powershell
+Set-Location C:\fiap-fase3\oficina-auth-serverless-fiap-fase3
+git switch main
+git pull --ff-only
+.\mvnw.cmd -B clean verify spotless:check
+$env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
+$env:TF_WORKSPACE = 'oficina-auth-production'
+terraform init -input=false
+terraform fmt -check -recursive
+terraform validate -no-color
+terraform plan -input=false -no-color
+```
+
+Após autorização, execute `terraform apply`, revise e digite `yes`. Depois:
+
+```powershell
+terraform output
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment production
+. C:\fiap-secrets\oficina-production\environment-context.ps1
+if ([string]::IsNullOrWhiteSpace($apiBase)) { throw 'API Gateway de produção ausente no contexto.' }
+Invoke-RestMethod -Method Get -Uri "$backendUrl/actuator/health"
+aws lambda get-function --function-name oficina-auth-production-login --query 'Configuration.[FunctionName,Runtime,Architectures]' --output table
+aws lambda get-function --function-name oficina-auth-production-authorizer --query 'Configuration.[FunctionName,Runtime,Architectures]' --output table
+aws apigatewayv2 get-apis --query "Items[?Name=='oficina-auth-production-http-api'].[Name,ApiEndpoint]" --output table
+```
+
+#### 24.1.5 Add-ons e observabilidade de produção
+
+```powershell
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment production -ConfigureNewRelic
+```
+
+Depois, no repositório Kubernetes, abra **Actions → Deploy → Run workflow**, selecione a branch `main`, `environment=production`, `apply_infrastructure=false`, `deploy_addons=true` e `apply_observability=true`. Aprove o GitHub Environment quando solicitado. Aguarde os três jobs e confirme `kubectl top nodes`, pods `nri-bundle` em `Running` e entidades de produção no New Relic. Não execute Newman, k6 nem cadastre dados sintéticos em produção; esses testes pertencem à homologação.
+
 ---
 
 ## 25. Configurar a conta e as chaves do New Relic
@@ -1220,8 +1385,8 @@ A validação só estará concluída após executar também as seções de obser
 Esta configuração não cria recursos AWS. Dashboards, alertas e monitor sintético só são criados após `terraform apply` autorizado no workspace de observabilidade.
 
 1. Em https://one.newrelic.com/, obtenha o **Account ID**, uma **User API key** e uma **License key**.
-2. Crie uma única vez os workspaces `oficina-newrelic-homolog` e `oficina-newrelic-production`, com execução remota, apply manual, Auto apply desativado e Working Directory `observability/newrelic`.
-3. Execute:
+2. Não copie essas chaves para HCP ou GitHub. Execute o script; ele cria/configura os workspaces e distribui os valores por canais sensíveis:
+
 
 ```powershell
 Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
@@ -1277,7 +1442,7 @@ Execute esta seção somente depois do apply do EKS e com credenciais atuais do 
 3. Clique em **Run workflow**.
 4. Escolha a branch `homolog`.
 5. Selecione `environment=homolog`.
-6. Na primeira execução, marque `apply_infrastructure=true` somente se a infraestrutura ainda não foi aplicada e o apply foi autorizado.
+6. Marque `apply_infrastructure=false`; o EKS já foi aplicado e validado na seção 5.
 7. Marque `deploy_addons=true`.
 8. Mantenha `apply_observability=false` até validar os add-ons.
 9. Aprove o environment solicitado.
@@ -1318,14 +1483,14 @@ Confirme que o plan cria:
 - nenhum recurso AWS;
 - nenhum monitor sintético enquanto `synthetic_monitor_enabled=false`.
 
-Depois do backend publicar `$backendUrl`, atualize no workspace:
+Depois do backend publicar `$backendUrl`, não altere o workspace manualmente. Reexecute:
 
-```text
-health_check_url=<valor de $backendUrl>/actuator/health
-synthetic_monitor_enabled=true
+```powershell
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment homolog -ConfigureNewRelic
 ```
 
-Execute novo plan. Somente após revisar e autorizar, faça apply manual pelo workflow **Deploy** do Kubernetes com `apply_observability=true` ou pelo HCP Terraform. Não use `-auto-approve`.
+O script grava `health_check_url` e `synthetic_monitor_enabled=true`. Volte ao diretório `observability\newrelic`, execute um novo `terraform plan` e confirme que o monitor sintético será criado com a URL `/actuator/health`. Somente após revisar e autorizar, faça apply pelo workflow **Deploy** do Kubernetes com `apply_observability=true`. Não use `-auto-approve`.
 
 No New Relic, abra **All capabilities → Dashboards** e procure `oficina-homolog`. Em **Alerts & AI → Alert conditions**, confira as 12 condições e os limiares de homologação.
 
@@ -1357,15 +1522,19 @@ Criação e transições devem aparecer depois do fluxo. Eventos de falha podem 
 
 ## 31. Validar Lambda, Authorizer e API Gateway no New Relic
 
-No workspace `oficina-auth-homolog`, configure as variáveis de observabilidade documentadas no repositório de autenticação:
+Não configure variáveis manualmente no workspace `oficina-auth-homolog`. Antes do plan da autenticação, execute:
 
-- habilitação da instrumentação New Relic;
-- License key sensível;
-- ARNs/versionamento das layers do agente e extensão compatíveis com Java 21 ARM64 e a região `us-west-2`;
-- forwarder de access logs somente se desejado;
-- endpoint/região New Relic coerente com a conta.
+```powershell
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment homolog -ConfigureNewRelic
+Set-Location C:\fiap-fase3\oficina-auth-serverless-fiap-fase3
+$env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
+$env:TF_WORKSPACE = 'oficina-auth-homolog'
+terraform init -input=false
+terraform plan -input=false -no-color
+```
 
-Não invente ARNs: copie os valores oficiais para a região e arquitetura indicadas na documentação atual do New Relic. Execute `terraform plan` e confirme que as duas Lambdas continuam Java 21 ARM64, reutilizam `LabRole` e não criam IAM roles.
+O script descobre automaticamente a versão atual da layer oficial `NewRelicAgentJavaARM64-slim` em `us-west-2`, grava Account ID, License key e flags de instrumentação no workspace. Confirme no plan que as duas Lambdas continuam Java 21 ARM64, reutilizam `LabRole`, recebem as layers do New Relic e não criam IAM roles.
 
 Depois do apply autorizado e dos testes de CPF/Authorizer:
 
@@ -1376,30 +1545,42 @@ Depois do apply autorizado e dos testes de CPF/Authorizer:
 
 ## 32. Executar Newman — fluxo funcional e segurança
 
-Instale Node.js 20+ e execute:
+O caminho recomendado não exige arquivo local nem cópia de secrets:
+
+1. abra o repositório backend no GitHub;
+2. acesse **Actions → Validacao E2E → Run workflow**;
+3. selecione a branch `homolog`;
+4. escolha `environment=homolog`;
+5. deixe `run_load_test=false` nesta primeira execução;
+6. execute e aguarde o job `Postman/Newman (homolog)`;
+7. baixe o artifact `newman-homolog-<run-id>` e confirme zero falhas.
+
+O workflow recebe URLs e senha administrativa diretamente do GitHub Environment configurado pelo script central; nenhum token é impresso ou armazenado em arquivo local.
+
+Para repetir localmente, use parâmetros explícitos e entrada de senha oculta:
 
 ```powershell
-npm install -g newman
+npm install --global newman@6.2.1 --ignore-scripts
 Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
-Copy-Item .\tests\postman\oficina-homolog.postman_environment.example.json .\tests\postman\oficina-homolog.postman_environment.json
-```
-
-Abra o arquivo copiado e preencha somente URLs e credenciais sintéticas necessárias. Não versione o arquivo preenchido. Alternativamente, use o workflow manual **E2E validation**, que recebe secrets pelo GitHub Environment.
-
-```powershell
+. C:\fiap-secrets\oficina-homolog\environment-context.ps1
+$adminSecure = Read-Host 'Digite APP_ADMIN_PASSWORD' -AsSecureString
+$pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($adminSecure)
+try { $adminPlain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer) }
+finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
 newman run .\tests\postman\oficina-weeks4-5.postman_collection.json `
-  -e .\tests\postman\oficina-homolog.postman_environment.json `
+  --env-var "backendBaseUrl=$backendUrl" `
+  --env-var "apiGatewayBaseUrl=$apiBase" `
+  --env-var "authBaseUrl=$apiBase" `
+  --env-var 'adminEmail=admin@oficina.local' `
+  --env-var "adminPassword=$adminPlain" `
   --reporters cli,junit `
-  --reporter-junit-export .\target\newman-results.xml
+  --reporter-junit-export .\target\newman-results.xml `
+  --timeout-request 15000 `
+  --bail
+Remove-Variable adminPlain, adminSecure, pointer -ErrorAction SilentlyContinue
 ```
 
-O fluxo valida healthcheck, request ID, login administrativo, técnico sintético, clientes, veículo, serviço, OS, autenticação por CPF, token ausente/adulterado, propriedade da OS, transições e histórico. Resultado esperado: zero assertions com falha.
-
-Apague o environment preenchido ao terminar:
-
-```powershell
-Remove-Item .\tests\postman\oficina-homolog.postman_environment.json
-```
+Resultado esperado: zero assertions com falha.
 
 ## 33. Executar k6 — carga controlada
 
@@ -1466,14 +1647,30 @@ kubectl rollout status deployment/oficina-app -n oficina-homolog --timeout=180s
 
 ```powershell
 helm history newrelic-bundle -n newrelic
-helm rollback newrelic-bundle <REVISAO> -n newrelic
+[int]$newRelicRevision = Read-Host 'Digite a revisão anterior do newrelic-bundle'
+if ($newRelicRevision -le 0) { throw 'Revisão inválida.' }
+helm rollback newrelic-bundle $newRelicRevision -n newrelic --wait
+
 helm history metrics-server -n kube-system
-helm rollback metrics-server <REVISAO> -n kube-system
+[int]$metricsRevision = Read-Host 'Digite a revisão anterior do metrics-server'
+if ($metricsRevision -le 0) { throw 'Revisão inválida.' }
+helm rollback metrics-server $metricsRevision -n kube-system --wait
 ```
 
 ### Observabilidade
 
-Desabilite `synthetic_monitor_enabled`, `notification_enabled` ou `observability_enabled`, revise o plan e aplique manualmente. Não apague dashboards à mão se eles são gerenciados pelo Terraform.
+Desative a instrumentação e os monitores pelo script, sem editar HCP/GitHub:
+
+```powershell
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment homolog -DisableObservability
+Set-Location C:\fiap-fase3\oficina-kubernetes-infra-fiap-fase3\observability\newrelic
+$env:TF_WORKSPACE = 'oficina-newrelic-homolog'
+terraform init -input=false
+terraform plan -input=false -no-color
+```
+
+Revise o plan. Se ele contiver somente a desativação esperada, execute `terraform apply`, revise novamente e digite `yes`. O script mantém as chaves armazenadas com segurança para uma futura reativação; ele apenas desliga as flags. Não apague dashboards à mão se eles são gerenciados pelo Terraform.
 
 ### Erros frequentes
 
@@ -1491,23 +1688,79 @@ Desabilite `synthetic_monitor_enabled`, `notification_enabled` ou `observability
 
 ## 37. Limpeza e controle de custo
 
-Depois de coletar as evidências, destrua na ordem inversa das dependências:
+Depois de coletar as evidências, abra um PowerShell novo. Os comandos abaixo são para homologação; para produção substitua `homolog` por `production` somente depois de confirmar o ambiente.
 
-1. autenticação/API Gateway/Lambdas;
-2. recursos de observabilidade New Relic, se a entrega não exigir mantê-los;
-3. banco RDS;
-4. add-ons e Kubernetes/EKS por último.
+```powershell
+Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
+.\scripts\configure-environment.ps1 -Environment homolog
+. C:\fiap-secrets\oficina-homolog\environment-context.ps1
+aws sts get-caller-identity
+```
 
-Para cada workspace:
+Não continue se o STS falhar ou se a conta retornada não for a conta atual do Learner Lab.
 
-1. renove as credenciais AWS quando o workspace gerenciar AWS;
-2. execute `terraform plan -destroy`;
-3. revise todos os recursos;
-4. execute `terraform destroy` somente após confirmar a ordem;
-5. digite `yes` manualmente;
-6. confirme no console AWS que NAT Gateway, LoadBalancer, EKS, nodes e RDS foram removidos.
+### 37.1 Destruir autenticação/API Gateway
 
-Não destrua o EKS antes do RDS. Não use `-auto-approve`. Preserve snapshots somente se a entrega exigir e houver saldo suficiente.
+```powershell
+Set-Location C:\fiap-fase3\oficina-auth-serverless-fiap-fase3
+$env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
+$env:TF_WORKSPACE = 'oficina-auth-homolog'
+terraform init -input=false
+terraform plan -destroy -input=false -no-color
+terraform destroy
+```
+
+Revise o plan e digite `yes`. Confirme que Lambdas e API Gateway foram removidos.
+
+### 37.2 Destruir observabilidade gerenciada pelo Terraform
+
+```powershell
+Set-Location C:\fiap-fase3\oficina-kubernetes-infra-fiap-fase3\observability\newrelic
+$env:TF_WORKSPACE = 'oficina-newrelic-homolog'
+terraform init -input=false
+terraform plan -destroy -input=false -no-color
+terraform destroy
+```
+
+Isso remove dashboards, alertas e monitor sintético; não remove o EKS.
+
+### 37.3 Remover backend e add-ons antes do EKS
+
+```powershell
+aws eks update-kubeconfig --region us-west-2 --name oficina-homolog
+kubectl delete namespace oficina-homolog --wait=true --timeout=300s
+helm uninstall newrelic-bundle -n newrelic --wait
+helm uninstall metrics-server -n kube-system --wait
+kubectl delete namespace newrelic --wait=true --timeout=180s
+kubectl get service --all-namespaces
+```
+
+Aceite `not found` somente quando o recurso já estiver ausente. Não prossiga enquanto existir um Service `LoadBalancer` da aplicação.
+
+### 37.4 Destruir RDS
+
+```powershell
+Set-Location C:\fiap-fase3\oficina-database-infra-fiap-fase3
+$env:TF_WORKSPACE = 'oficina-database-homolog'
+terraform init -input=false
+terraform plan -destroy -input=false -no-color
+terraform destroy
+```
+
+Revise e digite `yes`. Aguarde até o RDS desaparecer do console AWS.
+
+### 37.5 Destruir EKS e rede por último
+
+```powershell
+Set-Location C:\fiap-fase3\oficina-kubernetes-infra-fiap-fase3
+$env:TF_WORKSPACE = 'oficina-kubernetes-homolog'
+terraform init -input=false
+terraform plan -destroy -input=false -no-color
+terraform destroy
+terraform state list
+```
+
+O último comando deve ficar vazio. Confirme no console AWS que EKS, node group, NAT Gateway, LoadBalancer, subnets e VPC foram removidos. Não use `-auto-approve` em nenhuma etapa.
 
 ## 38. Checklist de evidências e critérios do trabalho
 
