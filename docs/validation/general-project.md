@@ -1220,6 +1220,7 @@ Não guarde prints de:
 | organização HCP não encontrada | placeholder ou nome incorreto | use `oficina-fiap-soat-fase-2` sem `<` e `>` |
 | HCP `422` com `Sensitive cannot be updated` | a variável sensível já existe e o HCP aceita somente a atualização do valor | use a versão atual do script e reexecute o mesmo comando; não apague nem recrie a variável manualmente |
 | propriedade `vpc_id` ou outro output não encontrada | versão antiga do script tentou acessar um state ainda vazio ou parcial | atualize a branch, reexecute o script e aguarde o aviso de output ausente; não cadastre IDs manualmente |
+| `aws.exe` falha em `eks update-kubeconfig` durante a preparação | versão antiga do script tentou consultar o LoadBalancer antes de o cluster existir | atualize a branch e reexecute; o script deve ignorar essa consulta até existirem outputs do EKS |
 | `-reconfigure` inválido | opção incompatível com `cloud {}` | execute `terraform init -input=false` sem `-reconfigure` |
 | JAR da Lambda não encontrado | autenticação não empacotada | execute `.\mvnw.cmd -B -DskipTests package` na raiz do auth |
 | kubectl `Unauthorized` | credencial local antiga | reexecute o script central, valide STS e atualize kubeconfig |
