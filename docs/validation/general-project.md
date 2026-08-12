@@ -29,7 +29,7 @@ Abra o **PowerShell como usuário normal**. Não use uma janela administrativa. 
 
 ```powershell
 winget install --id Git.Git -e
-winget install --id Hashicorp.Terraform -e
+winget install --id Hashicorp.Terraform -e --architecture x64
 winget install --id Amazon.AWSCLI -e
 winget install --id EclipseAdoptium.Temurin.21.JDK -e
 winget install --id Docker.DockerDesktop -e
@@ -45,6 +45,10 @@ Feche e abra o PowerShell após as instalações. Inicie o Docker Desktop, aguar
 ```powershell
 git --version
 terraform version
+$TerraformInfo = terraform version -json | ConvertFrom-Json
+if ($TerraformInfo.platform -ne 'windows_amd64') {
+  throw "Terraform incompatível: $($TerraformInfo.platform). Instale Hashicorp.Terraform para Windows x64."
+}
 aws --version
 java -version
 docker version
@@ -65,7 +69,7 @@ if (-not (Test-Path $OpenSsl)) { throw 'OpenSSL não encontrado. Reinstale o Git
 
 Critérios obrigatórios:
 
-- Terraform `>= 1.6` e `< 2.0`;
+- Terraform `>= 1.6` e `< 2.0`, obrigatoriamente com plataforma `windows_amd64`;
 - Java 21;
 - Docker respondendo sem erro;
 - `kubectl` compatível com Kubernetes 1.34;
