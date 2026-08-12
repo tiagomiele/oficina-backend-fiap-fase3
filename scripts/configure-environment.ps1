@@ -178,11 +178,86 @@ function Get-TerraformToken {
     throw 'Token do HCP Terraform não encontrado. Execute terraform login uma única vez.'
 }
 
+function Get-HcpApiStatusCode {
+    param([Parameter(Mandatory)][Management.Automation.ErrorRecord]$ErrorRecord)
+
+    $responseProperty = $ErrorRecord.Exception.PSObject.Properties['Response']
+    if ($null -eq $responseProperty -or $null -eq $responseProperty.Value) {
+        return $null
+    }
+
+    $statusCode = $responseProperty.Value.StatusCode
+    if ($statusCode -is [int]) {
+        return $statusCode
+    }
+    [int]$statusCode
+}
+
+function Get-HcpApiErrorDetail {
+    param([Parameter(Mandatory)][Management.Automation.ErrorRecord]$ErrorRecord)
+
+    $errorDetailsProperty = $ErrorRecord.PSObject.Properties['ErrorDetails']
+    $responseBody = if ($null -eq $errorDetailsProperty -or $null -eq $errorDetailsProperty.Value) {
+        ''
+    }
+    else {
+        [string]$errorDetailsProperty.Value.Message
+    }
+    $responseProperty = $ErrorRecord.Exception.PSObject.Properties['Response']
+    if ([string]::IsNullOrWhiteSpace($responseBody) -and $null -ne $responseProperty -and $null -ne $responseProperty.Value) {
+        try {
+            $response = $responseProperty.Value
+            $contentProperty = $response.PSObject.Properties['Content']
+            if ($null -ne $contentProperty -and $null -ne $contentProperty.Value) {
+                $responseBody = $contentProperty.Value.ReadAsStringAsync().GetAwaiter().GetResult()
+            }
+            else {
+                $responseStream = $response.GetResponseStream()
+                if ($null -ne $responseStream) {
+                    $reader = [IO.StreamReader]::new($responseStream)
+                    try {
+                        $responseBody = $reader.ReadToEnd()
+                    }
+                    finally {
+                        $reader.Dispose()
+                    }
+                }
+            }
+        }
+        catch {
+            $responseBody = ''
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($responseBody)) {
+        return [string]$ErrorRecord.Exception.Message
+    }
+
+    try {
+        $apiError = $responseBody | ConvertFrom-Json
+        $errorItems = @($apiError.PSObject.Properties['errors'].Value)
+        $details = @($errorItems | ForEach-Object {
+            $source = $_.PSObject.Properties['source'].Value
+            $pointerValue = if ($null -eq $source) { $null } else { $source.PSObject.Properties['pointer'].Value }
+            $pointer = if ([string]::IsNullOrWhiteSpace($pointerValue)) { '' } else { " [$pointerValue]" }
+            "$($_.title): $($_.detail)$pointer"
+        })
+        if ($details.Count -gt 0) {
+            return $details -join '; '
+        }
+    }
+    catch {
+    }
+
+    ($responseBody -replace '[\r\n]+', ' ').Trim()
+}
+
 function Invoke-HcpApi {
     param(
         [Parameter(Mandatory)][ValidateSet('GET', 'POST', 'PATCH', 'DELETE')][string]$Method,
         [Parameter(Mandatory)][string]$Path,
-        [object]$Body
+        [object]$Body,
+        [string]$Context = 'executar requisição'
     )
 
     $parameters = @{
@@ -190,16 +265,31 @@ function Invoke-HcpApi {
         Uri         = "https://app.terraform.io/api/v2/$Path"
         Headers     = $script:HcpHeaders
         ContentType = 'application/vnd.api+json'
+        ErrorAction = 'Stop'
     }
     if ($null -ne $Body) {
         $parameters.Body = $Body | ConvertTo-Json -Depth 20 -Compress
     }
 
-    Invoke-RestMethod @parameters
+    try {
+        Invoke-RestMethod @parameters
+    }
+    catch {
+        $statusCode = Get-HcpApiStatusCode -ErrorRecord $_
+        $detail = Get-HcpApiErrorDetail -ErrorRecord $_
+        $exception = [InvalidOperationException]::new(
+            "Falha no HCP Terraform ao $Context ($Method /api/v2/$Path): $detail",
+            $_.Exception
+        )
+        if ($null -ne $statusCode) {
+            $exception.Data['HcpStatusCode'] = $statusCode
+        }
+        throw $exception
+    }
 }
 
 function Get-HcpProject {
-    $projects = @((Invoke-HcpApi -Method GET -Path "organizations/$TerraformOrganization/projects?page%5Bsize%5D=100").data)
+    $projects = @((Invoke-HcpApi -Method GET -Path "organizations/$TerraformOrganization/projects?page%5Bsize%5D=100" -Context 'consultar projetos').data)
     $projects | Where-Object { $_.attributes.name -eq $TerraformProject } | Select-Object -First 1
 }
 
@@ -218,7 +308,7 @@ function Initialize-HcpProject {
             }
         }
     }
-    (Invoke-HcpApi -Method POST -Path "organizations/$TerraformOrganization/projects" -Body $body).data
+    (Invoke-HcpApi -Method POST -Path "organizations/$TerraformOrganization/projects" -Body $body -Context "criar o projeto $TerraformProject").data
 }
 
 function Get-HcpWorkspace {
@@ -228,10 +318,10 @@ function Get-HcpWorkspace {
     )
 
     try {
-        return (Invoke-HcpApi -Method GET -Path "organizations/$TerraformOrganization/workspaces/$Name").data
+        return (Invoke-HcpApi -Method GET -Path "organizations/$TerraformOrganization/workspaces/$Name" -Context "consultar o workspace $Name").data
     }
     catch {
-        if ($AllowMissing -and $_.Exception.Response.StatusCode -eq [Net.HttpStatusCode]::NotFound) {
+        if ($AllowMissing -and $_.Exception.Data['HcpStatusCode'] -eq 404) {
             return $null
         }
         throw
@@ -246,42 +336,61 @@ function Initialize-HcpWorkspace {
     )
 
     $workspace = Get-HcpWorkspace -Name $Name -AllowMissing
-    $attributes = @{
+    $desiredAttributes = @{
         'execution-mode'    = 'remote'
         'auto-apply'        = $false
         'working-directory' = $WorkingDirectory
     }
     if ($null -eq $workspace) {
-        $attributes.name = $Name
+        $desiredAttributes.name = $Name
         $body = @{
             data = @{
                 type          = 'workspaces'
-                attributes    = $attributes
+                attributes    = $desiredAttributes
                 relationships = @{
                     project = @{ data = @{ type = 'projects'; id = $Project.id } }
                 }
             }
         }
-        return (Invoke-HcpApi -Method POST -Path "organizations/$TerraformOrganization/workspaces" -Body $body).data
+        return (Invoke-HcpApi -Method POST -Path "organizations/$TerraformOrganization/workspaces" -Body $body -Context "criar o workspace $Name").data
     }
 
-    $body = @{
-        data = @{
-            type          = 'workspaces'
-            id            = $workspace.id
-            attributes    = $attributes
-            relationships = @{
-                project = @{ data = @{ type = 'projects'; id = $Project.id } }
-            }
+    $changedAttributes = @{}
+    if ([string]$workspace.attributes.'execution-mode' -ne 'remote') {
+        $changedAttributes['execution-mode'] = 'remote'
+    }
+    if ([bool]$workspace.attributes.'auto-apply') {
+        $changedAttributes['auto-apply'] = $false
+    }
+    if ([string]$workspace.attributes.'working-directory' -ne $WorkingDirectory) {
+        $changedAttributes['working-directory'] = $WorkingDirectory
+    }
+    $currentProjectId = [string]$workspace.relationships.project.data.id
+    $projectChanged = $currentProjectId -ne [string]$Project.id
+    if ($changedAttributes.Count -eq 0 -and -not $projectChanged) {
+        return $workspace
+    }
+
+    $data = @{
+        type = 'workspaces'
+        id   = $workspace.id
+    }
+    if ($changedAttributes.Count -gt 0) {
+        $data.attributes = $changedAttributes
+    }
+    if ($projectChanged) {
+        $data.relationships = @{
+            project = @{ data = @{ type = 'projects'; id = $Project.id } }
         }
     }
-    (Invoke-HcpApi -Method PATCH -Path "workspaces/$($workspace.id)" -Body $body).data
+    $body = @{ data = $data }
+    (Invoke-HcpApi -Method PATCH -Path "workspaces/$($workspace.id)" -Body $body -Context "atualizar o workspace $Name").data
 }
 
 function Get-HcpWorkspaceVariables {
     param([Parameter(Mandatory)][string]$WorkspaceId)
 
-    @((Invoke-HcpApi -Method GET -Path "workspaces/$WorkspaceId/vars?page%5Bsize%5D=100").data)
+    @((Invoke-HcpApi -Method GET -Path "workspaces/$WorkspaceId/vars?page%5Bsize%5D=100" -Context "consultar variáveis do workspace $WorkspaceId").data)
 }
 
 function Set-HcpWorkspaceVariable {
@@ -316,15 +425,15 @@ function Set-HcpWorkspaceVariable {
     }
 
     if ($null -eq $existing) {
-        Invoke-HcpApi -Method POST -Path "workspaces/$($Workspace.id)/vars" -Body $payload | Out-Null
+        Invoke-HcpApi -Method POST -Path "workspaces/$($Workspace.id)/vars" -Body $payload -Context "criar a variável $Key no workspace $($Workspace.attributes.name)" | Out-Null
         return
     }
 
     if ([bool]$existing.attributes.sensitive -ne $Sensitive) {
         foreach ($variable in $matchingVariables) {
-            Invoke-HcpApi -Method DELETE -Path "workspaces/$($Workspace.id)/vars/$($variable.id)" | Out-Null
+            Invoke-HcpApi -Method DELETE -Path "workspaces/$($Workspace.id)/vars/$($variable.id)" -Context "recriar a variável $Key no workspace $($Workspace.attributes.name)" | Out-Null
         }
-        Invoke-HcpApi -Method POST -Path "workspaces/$($Workspace.id)/vars" -Body $payload | Out-Null
+        Invoke-HcpApi -Method POST -Path "workspaces/$($Workspace.id)/vars" -Body $payload -Context "recriar a variável $Key no workspace $($Workspace.attributes.name)" | Out-Null
         return
     }
 
@@ -335,9 +444,9 @@ function Set-HcpWorkspaceVariable {
     else {
         $payload.data.attributes.Remove('sensitive')
     }
-    Invoke-HcpApi -Method PATCH -Path "workspaces/$($Workspace.id)/vars/$($existing.id)" -Body $payload | Out-Null
+    Invoke-HcpApi -Method PATCH -Path "workspaces/$($Workspace.id)/vars/$($existing.id)" -Body $payload -Context "atualizar a variável $Key no workspace $($Workspace.attributes.name)" | Out-Null
     foreach ($duplicateVariable in $matchingVariables | Select-Object -Skip 1) {
-        Invoke-HcpApi -Method DELETE -Path "workspaces/$($Workspace.id)/vars/$($duplicateVariable.id)" | Out-Null
+        Invoke-HcpApi -Method DELETE -Path "workspaces/$($Workspace.id)/vars/$($duplicateVariable.id)" -Context "remover duplicata da variável $Key no workspace $($Workspace.attributes.name)" | Out-Null
     }
 }
 
@@ -352,7 +461,7 @@ function Remove-HcpWorkspaceVariable {
     foreach ($variable in $variables | Where-Object {
         $_.attributes.key -eq $Key -and $_.attributes.category -eq $Category
     }) {
-        Invoke-HcpApi -Method DELETE -Path "workspaces/$($Workspace.id)/vars/$($variable.id)" | Out-Null
+        Invoke-HcpApi -Method DELETE -Path "workspaces/$($Workspace.id)/vars/$($variable.id)" -Context "remover a variável $Key do workspace $($Workspace.attributes.name)" | Out-Null
     }
 }
 
@@ -362,23 +471,23 @@ function Set-HcpVariableSetVariables {
         [Parameter(Mandatory)][object[]]$Definitions
     )
 
-    $existingVariables = @((Invoke-HcpApi -Method GET -Path "varsets/$VariableSetId/relationships/vars").data)
+    $existingVariables = @((Invoke-HcpApi -Method GET -Path "varsets/$VariableSetId/relationships/vars" -Context 'consultar variáveis do Variable Set AWS').data)
     foreach ($definition in $Definitions) {
         $matchingVariables = @($existingVariables | Where-Object {
             $_.attributes.key -eq $definition.attributes.key -and $_.attributes.category -eq $definition.attributes.category
         })
         $payload = @{ data = $definition }
         if ($matchingVariables.Count -eq 0) {
-            Invoke-HcpApi -Method POST -Path "varsets/$VariableSetId/relationships/vars" -Body $payload | Out-Null
+            Invoke-HcpApi -Method POST -Path "varsets/$VariableSetId/relationships/vars" -Body $payload -Context "criar $($definition.attributes.key) no Variable Set AWS" | Out-Null
             continue
         }
 
         $primaryVariable = $matchingVariables[0]
         if ([bool]$primaryVariable.attributes.sensitive -ne [bool]$definition.attributes.sensitive) {
             foreach ($variable in $matchingVariables) {
-                Invoke-HcpApi -Method DELETE -Path "varsets/$VariableSetId/relationships/vars/$($variable.id)" | Out-Null
+                Invoke-HcpApi -Method DELETE -Path "varsets/$VariableSetId/relationships/vars/$($variable.id)" -Context "recriar $($definition.attributes.key) no Variable Set AWS" | Out-Null
             }
-            Invoke-HcpApi -Method POST -Path "varsets/$VariableSetId/relationships/vars" -Body $payload | Out-Null
+            Invoke-HcpApi -Method POST -Path "varsets/$VariableSetId/relationships/vars" -Body $payload -Context "recriar $($definition.attributes.key) no Variable Set AWS" | Out-Null
             continue
         }
 
@@ -394,9 +503,9 @@ function Set-HcpVariableSetVariables {
             id         = $primaryVariable.id
             attributes = $attributes
         }
-        Invoke-HcpApi -Method PATCH -Path "varsets/$VariableSetId/relationships/vars/$($primaryVariable.id)" -Body $payload | Out-Null
+        Invoke-HcpApi -Method PATCH -Path "varsets/$VariableSetId/relationships/vars/$($primaryVariable.id)" -Body $payload -Context "atualizar $($definition.attributes.key) no Variable Set AWS" | Out-Null
         foreach ($duplicateVariable in $matchingVariables | Select-Object -Skip 1) {
-            Invoke-HcpApi -Method DELETE -Path "varsets/$VariableSetId/relationships/vars/$($duplicateVariable.id)" | Out-Null
+            Invoke-HcpApi -Method DELETE -Path "varsets/$VariableSetId/relationships/vars/$($duplicateVariable.id)" -Context "remover duplicata de $($definition.attributes.key) no Variable Set AWS" | Out-Null
         }
     }
 }
@@ -408,7 +517,7 @@ function Set-AwsVariableSet {
     )
 
     $name = 'aws-academy-credentials'
-    $existingSets = @((Invoke-HcpApi -Method GET -Path "organizations/$TerraformOrganization/varsets?page%5Bsize%5D=100").data)
+    $existingSets = @((Invoke-HcpApi -Method GET -Path "organizations/$TerraformOrganization/varsets?page%5Bsize%5D=100" -Context 'consultar Variable Sets').data)
     $matchingSets = @($existingSets | Where-Object { $_.attributes.name -eq $name })
 
     $workspaceRelationships = @($Workspaces | ForEach-Object {
@@ -470,17 +579,36 @@ function Set-AwsVariableSet {
                 id   = $TerraformOrganization
             }
         }
-        Invoke-HcpApi -Method POST -Path "organizations/$TerraformOrganization/varsets" -Body $payload | Out-Null
+        Invoke-HcpApi -Method POST -Path "organizations/$TerraformOrganization/varsets" -Body $payload -Context 'criar o Variable Set AWS' | Out-Null
         return
     }
 
     $primarySet = $matchingSets[0]
-    $payload.data.id = $primarySet.id
-    $payload.data.relationships.Remove('vars')
-    Invoke-HcpApi -Method PATCH -Path "varsets/$($primarySet.id)" -Body $payload | Out-Null
+    $attributeChanges = @{}
+    if ([string]$primarySet.attributes.description -ne [string]$payload.data.attributes.description) {
+        $attributeChanges.description = $payload.data.attributes.description
+    }
+    if ([bool]$primarySet.attributes.global) {
+        $attributeChanges.global = $false
+    }
+    if ([bool]$primarySet.attributes.priority) {
+        $attributeChanges.priority = $false
+    }
+    if ($attributeChanges.Count -gt 0) {
+        $metadataPayload = @{
+            data = @{
+                type       = 'varsets'
+                id         = $primarySet.id
+                attributes = $attributeChanges
+            }
+        }
+        Invoke-HcpApi -Method PATCH -Path "varsets/$($primarySet.id)" -Body $metadataPayload -Context 'atualizar os metadados do Variable Set AWS' | Out-Null
+    }
+    $workspacePayload = @{ data = $workspaceRelationships }
+    Invoke-HcpApi -Method POST -Path "varsets/$($primarySet.id)/relationships/workspaces" -Body $workspacePayload -Context 'associar o Variable Set AWS aos workspaces' | Out-Null
     Set-HcpVariableSetVariables -VariableSetId $primarySet.id -Definitions $variables
     foreach ($duplicateSet in $matchingSets | Select-Object -Skip 1) {
-        Invoke-HcpApi -Method DELETE -Path "varsets/$($duplicateSet.id)" | Out-Null
+        Invoke-HcpApi -Method DELETE -Path "varsets/$($duplicateSet.id)" -Context 'remover Variable Set AWS duplicado' | Out-Null
     }
 }
 
@@ -805,6 +933,7 @@ if ($ValidateOnly) {
     return
 }
 
+Write-Host 'Sincronizando projeto e workspaces no HCP Terraform...'
 $hcpProject = Initialize-HcpProject
 foreach ($component in @('Kubernetes', 'Database', 'Auth', 'NewRelic')) {
     foreach ($targetEnvironment in @('homolog', 'production')) {
@@ -817,6 +946,7 @@ foreach ($component in @('Kubernetes', 'Database', 'Auth', 'NewRelic')) {
         }
     }
 }
+Write-Host 'Sincronizando credenciais temporárias no Variable Set compartilhado...'
 Set-AwsVariableSet -Workspaces $awsWorkspaces -Credentials $credentials
 foreach ($workspace in $awsWorkspaces) {
     foreach ($key in @('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN')) {
@@ -843,6 +973,7 @@ foreach ($component in @('Kubernetes', 'Database', 'Auth')) {
     }
 }
 
+Write-Host 'Sincronizando secrets permanentes dos workspaces...'
 $dbPassword = Get-StoredSecret -Name 'database-password' -Prompt 'Senha atual do RDS' -GenerateWhenEmpty
 $appJwtSecret = Get-StoredSecret -Name 'backend-jwt-secret' -Prompt 'Secret HMAC administrativo atual do backend' -GenerateWhenEmpty
 $adminPassword = Get-StoredSecret -Name 'backend-admin-password' -Prompt 'Senha atual do administrador do backend' -GenerateWhenEmpty
