@@ -630,6 +630,25 @@ function Get-TerraformOutputs {
     }
 }
 
+function Get-TerraformOutput {
+    param(
+        [object]$Outputs,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    if ($null -eq $Outputs) {
+        return $null
+    }
+    $property = $Outputs.PSObject.Properties[$Name]
+    if ($null -eq $property -or $null -eq $property.Value) {
+        return $null
+    }
+    if ($null -eq $property.Value.PSObject.Properties['value']) {
+        return $null
+    }
+    $property.Value
+}
+
 function Get-KubernetesBackendUrl {
     param(
         [Parameter(Mandatory)][string]$EnvironmentName,
@@ -853,13 +872,13 @@ if (-not $SkipGitHub) {
 $kubernetesReady = $false
 $databaseReady = $false
 $kubernetesOutputs = Get-TerraformOutputs -RepositoryPath $repositoryPaths.Kubernetes -WorkspaceName $WorkspaceNames.Kubernetes[$Environment]
-if ($null -ne $kubernetesOutputs -and
-    $null -ne $kubernetesOutputs.vpc_id -and
-    $null -ne $kubernetesOutputs.private_subnet_ids -and
-    $null -ne $kubernetesOutputs.eks_cluster_security_group_id) {
-    $vpcId = [string]$kubernetesOutputs.vpc_id.value
-    $privateSubnetIds = @($kubernetesOutputs.private_subnet_ids.value)
-    $eksSecurityGroupId = [string]$kubernetesOutputs.eks_cluster_security_group_id.value
+$vpcOutput = Get-TerraformOutput -Outputs $kubernetesOutputs -Name vpc_id
+$privateSubnetsOutput = Get-TerraformOutput -Outputs $kubernetesOutputs -Name private_subnet_ids
+$eksSecurityGroupOutput = Get-TerraformOutput -Outputs $kubernetesOutputs -Name eks_cluster_security_group_id
+if ($null -ne $vpcOutput -and $null -ne $privateSubnetsOutput -and $null -ne $eksSecurityGroupOutput) {
+    $vpcId = [string]$vpcOutput.value
+    $privateSubnetIds = @($privateSubnetsOutput.value)
+    $eksSecurityGroupId = [string]$eksSecurityGroupOutput.value
     $contextValues['vpcId'] = $vpcId
     $contextValues['privateSubnetIds'] = $privateSubnetIds
     $contextValues['eksSecurityGroupId'] = $eksSecurityGroupId
@@ -878,18 +897,22 @@ else {
 }
 
 $databaseOutputs = Get-TerraformOutputs -RepositoryPath $repositoryPaths.Database -WorkspaceName $WorkspaceNames.Database[$Environment]
-if ($null -ne $databaseOutputs -and $null -ne $databaseOutputs.jdbc_url) {
-    $jdbcUrl = [string]$databaseOutputs.jdbc_url.value
+$jdbcOutput = Get-TerraformOutput -Outputs $databaseOutputs -Name jdbc_url
+if ($null -ne $jdbcOutput) {
+    $jdbcUrl = [string]$jdbcOutput.value
     $authJdbcUrl = "$jdbcUrl?sslmode=require"
     $contextValues['jdbcUrl'] = $jdbcUrl
-    if ($null -ne $databaseOutputs.database_endpoint) {
-        $contextValues['dbHost'] = [string]$databaseOutputs.database_endpoint.value
+    $databaseEndpointOutput = Get-TerraformOutput -Outputs $databaseOutputs -Name database_endpoint
+    $databasePortOutput = Get-TerraformOutput -Outputs $databaseOutputs -Name database_port
+    $databaseNameOutput = Get-TerraformOutput -Outputs $databaseOutputs -Name database_name
+    if ($null -ne $databaseEndpointOutput) {
+        $contextValues['dbHost'] = [string]$databaseEndpointOutput.value
     }
-    if ($null -ne $databaseOutputs.database_port) {
-        $contextValues['dbPort'] = [int]$databaseOutputs.database_port.value
+    if ($null -ne $databasePortOutput) {
+        $contextValues['dbPort'] = [int]$databasePortOutput.value
     }
-    if ($null -ne $databaseOutputs.database_name) {
-        $contextValues['dbName'] = [string]$databaseOutputs.database_name.value
+    if ($null -ne $databaseNameOutput) {
+        $contextValues['dbName'] = [string]$databaseNameOutput.value
     }
     Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key db_url -Value $authJdbcUrl -Sensitive $true
 
@@ -930,11 +953,13 @@ else {
 }
 
 $authOutputs = Get-TerraformOutputs -RepositoryPath $repositoryPaths.Auth -WorkspaceName $WorkspaceNames.Auth[$Environment]
-if ($null -ne $authOutputs -and $null -ne $authOutputs.api_base_url) {
-    $apiBaseUrl = [string]$authOutputs.api_base_url.value
+$apiBaseOutput = Get-TerraformOutput -Outputs $authOutputs -Name api_base_url
+if ($null -ne $apiBaseOutput) {
+    $apiBaseUrl = [string]$apiBaseOutput.value
     $contextValues['apiBase'] = $apiBaseUrl
-    if ($null -ne $authOutputs.cpf_authentication_url) {
-        $contextValues['authUrl'] = [string]$authOutputs.cpf_authentication_url.value
+    $cpfAuthenticationOutput = Get-TerraformOutput -Outputs $authOutputs -Name cpf_authentication_url
+    if ($null -ne $cpfAuthenticationOutput) {
+        $contextValues['authUrl'] = [string]$cpfAuthenticationOutput.value
     }
     if (-not $SkipGitHub) {
         Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name API_GATEWAY_BASE_URL -Value $apiBaseUrl
