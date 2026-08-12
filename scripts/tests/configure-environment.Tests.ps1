@@ -9,7 +9,7 @@ if ($errors.Count -gt 0) {
     throw ($errors | Out-String)
 }
 
-foreach ($name in @('Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl')) {
+foreach ($name in @('Assert-TerraformPlatform', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl')) {
     $functionAst = $ast.FindAll({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -97,8 +97,15 @@ $env:TF_WORKSPACE = 'original-workspace'
 $script:terraformInitExitCode = 1
 $script:terraformOutputExitCode = 1
 $script:terraformOutput = '{}'
+$script:terraformPlatform = 'linux_amd64'
 function terraform {
     param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Arguments)
+
+    if ($Arguments -contains 'version') {
+        "{`"terraform_version`":`"1.10.0`",`"platform`":`"$script:terraformPlatform`"}"
+        $global:LASTEXITCODE = 0
+        return
+    }
 
     if ($Arguments -contains 'init') {
         if ($script:terraformInitExitCode -ne 0) {
@@ -120,6 +127,27 @@ function terraform {
     $global:LASTEXITCODE = $script:terraformOutputExitCode
 }
 
+$originalOperatingSystem = $env:OS
+try {
+    $env:OS = 'Windows_NT'
+    $script:terraformPlatform = 'windows_386'
+    try {
+        Assert-TerraformPlatform
+        throw '32-bit Terraform must be rejected on Windows.'
+    }
+    catch {
+        if ($_.Exception.Message -notlike 'Terraform incompatível: plataforma windows_386*') {
+            throw
+        }
+    }
+    $script:terraformPlatform = 'windows_amd64'
+    Assert-TerraformPlatform
+}
+finally {
+    $env:OS = $originalOperatingSystem
+    $script:terraformPlatform = 'linux_amd64'
+}
+
 if ($null -ne (Get-TerraformOutputs -RepositoryPath repository -WorkspaceName target-workspace)) {
     throw 'Failed Terraform initialization must return null.'
 }
@@ -133,7 +161,17 @@ if ($env:TF_CLOUD_ORGANIZATION -ne 'original-organization' -or $env:TF_WORKSPACE
     throw 'Terraform output lookup did not restore the original environment.'
 }
 
+$script:ConfigurationIssues.Clear()
 $script:terraformInitExitCode = 0
+$script:terraformOutputExitCode = 1
+if ($null -ne (Get-TerraformOutputs -RepositoryPath repository -WorkspaceName target-workspace)) {
+    throw 'Failed Terraform output must return null.'
+}
+if ($script:ConfigurationIssues.Count -ne 1 -or $script:ConfigurationIssues[0] -notlike '*Outputs unavailable.*') {
+    throw 'Failed Terraform output must preserve the command detail.'
+}
+
+$script:ConfigurationIssues.Clear()
 $script:terraformOutputExitCode = 0
 $script:terraformOutput = '{"api_base_url":{"value":"https://example.com"}}'
 $terraformOutputs = Get-TerraformOutputs -RepositoryPath repository -WorkspaceName target-workspace

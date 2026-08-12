@@ -54,6 +54,24 @@ function Assert-Command {
     }
 }
 
+function Assert-TerraformPlatform {
+    $versionOutput = @(& terraform version -json 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Não foi possível identificar a plataforma do Terraform: $(($versionOutput | Select-Object -Last 3) -join ' ')"
+    }
+
+    try {
+        $version = ($versionOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    }
+    catch {
+        throw 'O comando terraform version -json retornou uma resposta inválida.'
+    }
+
+    if ($env:OS -eq 'Windows_NT' -and [string]$version.platform -ne 'windows_amd64') {
+        throw "Terraform incompatível: plataforma $($version.platform). Instale a edição Windows x64 (windows_amd64) antes de continuar."
+    }
+}
+
 function Resolve-OpenSslCommand {
     $command = Get-Command openssl -ErrorAction SilentlyContinue
     if ($null -ne $command) {
@@ -772,7 +790,8 @@ function Get-TerraformOutputs {
         $output = @(& terraform "-chdir=$RepositoryPath" output -json 2>&1)
         $outputExitCode = $LASTEXITCODE
         if ($outputExitCode -ne 0) {
-            $message = "Não foi possível ler os outputs do workspace $WorkspaceName."
+            $detail = ($output | Select-Object -Last 8) -join ' '
+            $message = "Não foi possível ler os outputs do workspace $WorkspaceName. Detalhe: $detail"
             $script:ConfigurationIssues.Add($message)
             Write-Warning "$message Não execute plan/apply antes de corrigir essa leitura."
             return $null
@@ -889,6 +908,7 @@ $contextValues = [ordered]@{
 }
 
 Assert-Command terraform
+Assert-TerraformPlatform
 Assert-Command aws
 Assert-Command kubectl
 $script:OpenSslCommand = Resolve-OpenSslCommand
