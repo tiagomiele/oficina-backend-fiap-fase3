@@ -1218,6 +1218,7 @@ Não guarde prints de:
 | `ExpiredToken` | sessão AWS Academy expirou | copie o novo bloco `[default]` e reexecute `configure-environment.ps1` uma vez |
 | `InvalidClientTokenId` | credenciais misturadas ou incorretas | copie novamente as três credenciais da mesma sessão |
 | organização HCP não encontrada | placeholder ou nome incorreto | use `oficina-fiap-soat-fase-2` sem `<` e `>` |
+| HCP `422` com `Sensitive cannot be updated` | a variável sensível já existe e o HCP aceita somente a atualização do valor | use a versão atual do script e reexecute o mesmo comando; não apague nem recrie a variável manualmente |
 | `-reconfigure` inválido | opção incompatível com `cloud {}` | execute `terraform init -input=false` sem `-reconfigure` |
 | JAR da Lambda não encontrado | autenticação não empacotada | execute `.\mvnw.cmd -B -DskipTests package` na raiz do auth |
 | kubectl `Unauthorized` | credencial local antiga | reexecute o script central, valide STS e atualize kubeconfig |
