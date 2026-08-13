@@ -9,7 +9,7 @@ if ($errors.Count -gt 0) {
     throw ($errors | Out-String)
 }
 
-foreach ($name in @('Assert-TerraformPlatform', 'Assert-RdsPassword', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion')) {
+foreach ($name in @('Assert-TerraformPlatform', 'Assert-RdsPassword', 'ConvertFrom-SecureText', 'New-RandomSecret', 'Get-StoredSecret', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion')) {
     $functionAst = $ast.FindAll({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -37,6 +37,74 @@ foreach ($invalidPassword in @(
             throw
         }
     }
+}
+
+Assert-RdsPassword -Password (New-RandomSecret)
+
+$secretsDirectory = Join-Path ([IO.Path]::GetTempPath()) ("configure-environment-tests-" + [Guid]::NewGuid())
+$rdsValidator = {
+    param($candidate)
+
+    Assert-RdsPassword -Password $candidate
+}
+try {
+    $script:promptedValues = [Collections.Generic.Queue[string]]::new()
+    function Read-SecretText {
+        param([Parameter(Mandatory)][string]$Prompt)
+
+        $script:promptedValues.Dequeue()
+    }
+
+    $script:promptedValues.Enqueue('invalid@password123456')
+    $script:promptedValues.Enqueue('SafeRdsPassword!123456789')
+    $storedPath = Join-Path $secretsDirectory 'database-password.clixml'
+    $password = Get-StoredSecret -Name 'database-password' -Prompt 'Senha atual do RDS' -GenerateWhenEmpty -Validator $rdsValidator -Directory $secretsDirectory
+    if ($password -ne 'SafeRdsPassword!123456789') {
+        throw 'Rejected password must be replaced by the next valid entry.'
+    }
+    if ((ConvertFrom-SecureText (Import-Clixml $storedPath)) -ne 'SafeRdsPassword!123456789') {
+        throw 'Only the validated password may be persisted.'
+    }
+    $reusedPassword = Get-StoredSecret -Name 'database-password' -Prompt 'Senha atual do RDS' -GenerateWhenEmpty -Validator $rdsValidator -Directory $secretsDirectory
+    if ($reusedPassword -ne 'SafeRdsPassword!123456789') {
+        throw 'Stored password must be reused without prompting.'
+    }
+
+    Remove-Item $storedPath
+    $script:promptedValues.Enqueue('')
+    $generated = Get-StoredSecret -Name 'database-password' -Prompt 'Senha atual do RDS' -GenerateWhenEmpty -Validator $rdsValidator -Directory $secretsDirectory
+    Assert-RdsPassword -Password $generated
+
+    Remove-Item $storedPath
+    $script:promptedValues.Enqueue('invalid@password123456')
+    $script:promptedValues.Enqueue('short')
+    try {
+        Get-StoredSecret -Name 'database-password' -Prompt 'Senha atual do RDS' -GenerateWhenEmpty -Validator $rdsValidator -MaxAttempts 2 -Directory $secretsDirectory
+        throw 'Exhausted attempts must fail.'
+    }
+    catch {
+        if ($_.Exception.Message -eq 'Exhausted attempts must fail.') {
+            throw
+        }
+    }
+    if (Test-Path $storedPath) {
+        throw 'Invalid password must never be persisted.'
+    }
+
+    ConvertTo-SecureString 'invalid@password123456' -AsPlainText -Force | Export-Clixml $storedPath
+    try {
+        Get-StoredSecret -Name 'database-password' -Prompt 'Senha atual do RDS' -GenerateWhenEmpty -Validator $rdsValidator -Directory $secretsDirectory
+        throw 'Invalid stored password must fail.'
+    }
+    catch {
+        if ($_.Exception.Message -notlike "*Remova somente $storedPath*") {
+            throw
+        }
+    }
+}
+finally {
+    Remove-Item Function:\Read-SecretText -ErrorAction SilentlyContinue
+    Remove-Item $secretsDirectory -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 $apiException = [InvalidOperationException]::new('HTTP 400')
