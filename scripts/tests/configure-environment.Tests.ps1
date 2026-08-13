@@ -9,7 +9,7 @@ if ($errors.Count -gt 0) {
     throw ($errors | Out-String)
 }
 
-foreach ($name in @('Assert-TerraformPlatform', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion')) {
+foreach ($name in @('Assert-TerraformPlatform', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion')) {
     $functionAst = $ast.FindAll({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -74,6 +74,15 @@ catch {
     }
 }
 Remove-Item Function:\Invoke-RestMethod
+
+$singleItemHclList = ConvertTo-HclList -Values @('sg-00672ffa5d6c0fb23')
+if ($singleItemHclList -ne '["sg-00672ffa5d6c0fb23"]') {
+    throw "Single-item HCL list was serialized incorrectly: $singleItemHclList"
+}
+$multipleItemHclList = ConvertTo-HclList -Values @('subnet-a', 'subnet-b')
+if ($multipleItemHclList -ne '["subnet-a","subnet-b"]') {
+    throw "Multiple-item HCL list was serialized incorrectly: $multipleItemHclList"
+}
 
 if ($null -ne (Get-TerraformOutput -Outputs $null -Name vpc_id)) {
     throw 'Null Terraform outputs must return null.'
