@@ -820,6 +820,12 @@ function Get-TerraformOutputs {
     }
 }
 
+function ConvertTo-HclList {
+    param([Parameter(Mandatory)][object[]]$Values)
+
+    ConvertTo-Json -InputObject @($Values) -Compress
+}
+
 function Get-TerraformOutput {
     param(
         [object]$Outputs,
@@ -1122,9 +1128,9 @@ if ($null -ne $vpcOutput -and $null -ne $privateSubnetsOutput -and $null -ne $ek
     $contextValues['eksSecurityGroupId'] = $eksSecurityGroupId
 
     Set-HcpWorkspaceVariable -Workspace $databaseWorkspace -Key vpc_id -Value $vpcId
-    Set-HcpWorkspaceVariable -Workspace $databaseWorkspace -Key private_subnet_ids -Value ($privateSubnetIds | ConvertTo-Json -Compress) -Hcl $true
-    Set-HcpWorkspaceVariable -Workspace $databaseWorkspace -Key allowed_security_group_ids -Value (@($eksSecurityGroupId) | ConvertTo-Json -Compress) -Hcl $true
-    Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key private_subnet_ids -Value ($privateSubnetIds | ConvertTo-Json -Compress) -Hcl $true
+    Set-HcpWorkspaceVariable -Workspace $databaseWorkspace -Key private_subnet_ids -Value (ConvertTo-HclList -Values $privateSubnetIds) -Hcl $true
+    Set-HcpWorkspaceVariable -Workspace $databaseWorkspace -Key allowed_security_group_ids -Value (ConvertTo-HclList -Values @($eksSecurityGroupId)) -Hcl $true
+    Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key private_subnet_ids -Value (ConvertTo-HclList -Values $privateSubnetIds) -Hcl $true
     Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key lambda_security_group_id -Value $eksSecurityGroupId
     $kubernetesReady = $true
 
@@ -1243,7 +1249,7 @@ if ($ConfigureNewRelic) {
     Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key apm_application_name -Value "oficina-backend-$Environment"
     Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key kubernetes_namespace -Value "oficina-$Environment"
     Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key api_gateway_name -Value "oficina-auth-$Environment-http-api"
-    Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key lambda_function_names -Value (@("oficina-auth-$Environment-login", "oficina-auth-$Environment-authorizer") | ConvertTo-Json -Compress) -Hcl $true
+    Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key lambda_function_names -Value (ConvertTo-HclList -Values @("oficina-auth-$Environment-login", "oficina-auth-$Environment-authorizer")) -Hcl $true
     $syntheticMonitorEnabled = if ([string]::IsNullOrWhiteSpace($backendUrl)) { 'false' } else { 'true' }
     Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key synthetic_monitor_enabled -Value $syntheticMonitorEnabled -Hcl $true
     Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key notification_enabled -Value 'false' -Hcl $true
