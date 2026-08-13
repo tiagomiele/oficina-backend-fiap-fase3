@@ -15,7 +15,7 @@ if ($null -ne $unbracedInterpolation) {
     throw "Use `${variavel} antes de '?' em interpolação: $($unbracedInterpolation.Line.Trim())"
 }
 
-foreach ($name in @('Assert-TerraformPlatform', 'Assert-RdsPassword', 'ConvertFrom-SecureText', 'New-RandomSecret', 'Get-StoredSecret', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion')) {
+foreach ($name in @('Assert-TerraformPlatform', 'Assert-RdsPassword', 'ConvertFrom-SecureText', 'New-RandomSecret', 'Get-StoredSecret', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion', 'Invoke-Gh', 'Set-GitHubSecret')) {
     $functionAst = $ast.FindAll({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -504,5 +504,24 @@ $metadataPatch = $script:requests | Where-Object { $_.Path -eq 'varsets/varset-1
 if ($null -ne $metadataPatch) {
     throw 'Unchanged Variable Set metadata must not be patched.'
 }
+
+$GitHubOwner = 'test-owner'
+$script:ghCalls = @()
+function gh {
+    param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Arguments)
+
+    $script:ghCalls += , @($Arguments)
+    $global:LASTEXITCODE = 0
+}
+Set-GitHubSecret -Repository oficina-backend-fiap-fase3 -EnvironmentName homolog -Name APP_ADMIN_PASSWORD -Value 'senha-sem-quebra'
+if ($script:ghCalls.Count -ne 1) {
+    throw 'Secret update must call the GitHub CLI once.'
+}
+$ghArguments = $script:ghCalls[0]
+$bodyIndex = [Array]::IndexOf($ghArguments, '--body')
+if ($bodyIndex -lt 0 -or $ghArguments[$bodyIndex + 1] -ne 'senha-sem-quebra') {
+    throw 'Secret value must be sent verbatim via --body, never through the pipeline.'
+}
+Remove-Item Function:\gh
 
 Write-Host 'Environment automation tests passed.'
