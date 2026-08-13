@@ -1198,7 +1198,7 @@ $databaseOutputs = Get-TerraformOutputs -RepositoryPath $repositoryPaths.Databas
 $jdbcOutput = Get-TerraformOutput -Outputs $databaseOutputs -Name jdbc_url
 if ($null -ne $jdbcOutput) {
     $jdbcUrl = [string]$jdbcOutput.value
-    $authJdbcUrl = "$jdbcUrl?sslmode=require"
+    $authJdbcUrl = "${jdbcUrl}?sslmode=require"
     $contextValues['jdbcUrl'] = $jdbcUrl
     $databaseEndpointOutput = Get-TerraformOutput -Outputs $databaseOutputs -Name database_endpoint
     $databasePortOutput = Get-TerraformOutput -Outputs $databaseOutputs -Name database_port
