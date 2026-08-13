@@ -9,7 +9,7 @@ if ($errors.Count -gt 0) {
     throw ($errors | Out-String)
 }
 
-foreach ($name in @('Assert-TerraformPlatform', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl')) {
+foreach ($name in @('Assert-TerraformPlatform', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion')) {
     $functionAst = $ast.FindAll({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -45,6 +45,32 @@ catch {
     $expectedMessage = 'Falha no HCP Terraform ao atualizar o workspace teste (PATCH /api/v2/workspaces/ws-1): invalid attribute: execution-mode is invalid [/data/attributes/execution-mode]'
     if ($_.Exception.Message -ne $expectedMessage) {
         throw "HCP API context was not preserved: $($_.Exception.Message)"
+    }
+}
+Remove-Item Function:\Invoke-RestMethod
+
+$script:newRelicLayersResponse = [pscustomobject]@{
+    Layers = @(
+        [pscustomobject]@{
+            LayerName = 'NewRelicAgentJavaARM64-slim'
+            LatestMatchingVersion = [pscustomobject]@{ Version = 8 }
+        }
+    )
+}
+function Invoke-RestMethod {
+    $script:newRelicLayersResponse
+}
+if ((Get-NewRelicLayerVersion) -ne 8) {
+    throw 'Latest New Relic Java ARM64 slim layer was not selected.'
+}
+$script:newRelicLayersResponse = [pscustomobject]@{ Layers = @() }
+try {
+    Get-NewRelicLayerVersion
+    throw 'Missing New Relic layer must fail.'
+}
+catch {
+    if ($_.Exception.Message -notlike 'A camada NewRelicAgentJavaARM64-slim não foi encontrada*') {
+        throw
     }
 }
 Remove-Item Function:\Invoke-RestMethod
