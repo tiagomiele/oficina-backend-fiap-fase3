@@ -761,6 +761,8 @@ kubectl delete pod postgres-client -n oficina-homolog
 
 Os comandos desta seção cadastram ou reutilizam dois clientes, um veículo, um serviço e criam uma nova OS. Não use dados pessoais reais.
 
+No Windows PowerShell 5.1 envie sempre o corpo como bytes UTF-8 (`-ContentType 'application/json; charset=utf-8'` com `[Text.Encoding]::UTF8.GetBytes($json)`). Sem o charset o PowerShell serializa o corpo em ISO-8859-1 e qualquer caractere fora de ASCII — acentos ou um BOM no início de um segredo — chega corrompido ao backend, o que aparece como `401` no login e como `400` nos cadastros.
+
 ### 15.1 Fazer login administrativo diretamente no backend
 
 ```powershell
@@ -771,12 +773,12 @@ try {
 } finally {
   [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($adminPasswordPointer)
 }
-$adminBody = @{
+$adminBody = [Text.Encoding]::UTF8.GetBytes((@{
   email = 'admin@oficina.local'
   senha = $adminPassword
-} | ConvertTo-Json
+} | ConvertTo-Json))
 
-$admin = Invoke-RestMethod -Method Post -Uri "$backendUrl/auth/login" -ContentType 'application/json' -Body $adminBody
+$admin = Invoke-RestMethod -Method Post -Uri "$backendUrl/auth/login" -ContentType 'application/json; charset=utf-8' -Body $adminBody
 $adminHeaders = @{ Authorization = "Bearer $($admin.accessToken)" }
 $admin.papel
 ```
@@ -794,6 +796,14 @@ $localPlain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.Intero
 ```
 
 Se os hashes divergirem, reexecute `.\scripts\configure-environment.ps1 -Environment homolog` e o workflow CD antes de repetir o login.
+
+Ambientes configurados antes da correção do `Set-GitHubSecret` têm um BOM UTF-8 (`EF BB BF`) no início de cada segredo, porque o valor era enviado ao `gh` pelo pipe do Windows PowerShell. Nesse caso o comprimento do valor no cluster é três bytes maior que o do arquivo local e a comparação `-eq` engana, já que U+FEFF é ignorado:
+
+```powershell
+kubectl exec -n oficina-homolog deploy/oficina-app -- sh -c 'printf %s "$ADMIN_PASSWORD" | wc -c'
+```
+
+Enquanto os segredos não forem regravados, o valor válido é o do cluster (`$fromPod`), inclusive para a senha master do RDS no `psql`. Para limpar todos de uma vez: reexecute `.\scripts\configure-environment.ps1 -Environment homolog`, rode o workflow CD (regrava `oficina-secrets` e o bootstrap ressincroniza o hash do admin) e aplique o repositório de banco para redefinir a senha master do RDS.
 
 ### 15.2 Criar ou reutilizar o cliente proprietário
 
