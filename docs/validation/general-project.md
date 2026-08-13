@@ -785,6 +785,17 @@ $admin.papel
 
 Resultado esperado: `FUNCIONARIO_DA_OFICINA`. Não imprima `$admin.accessToken`.
 
+O token vale `jwt.access-token-ttl-minutes` (15 minutos). Depois disso os endpoints administrativos respondem `403` (o filtro descarta a autenticação e o `@PreAuthorize` nega), não `401`. Defina o atalho abaixo e reexecute-o sempre que aparecer `403` nas próximas seções:
+
+```powershell
+function Login-Admin {
+  $json = @{ email = 'admin@oficina.local'; senha = $adminPassword } | ConvertTo-Json
+  $script:admin = Invoke-RestMethod -Method Post -Uri "$backendUrl/auth/login" -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json))
+  $script:adminHeaders = @{ Authorization = "Bearer $($script:admin.accessToken)" }
+  $script:admin.papel
+}
+```
+
 O valor válido é sempre o do secret `APP_ADMIN_PASSWORD` do ambiente, porque a aplicação sincroniza a senha do admin no start quando ela difere da configurada. Se o login retornar `401`, confirme que o último deploy já rodou com o secret atual (`kubectl rollout restart deployment/oficina-app -n oficina-homolog`) e compare o valor local com o do cluster:
 
 ```powershell
@@ -813,12 +824,13 @@ $clientes = Invoke-RestMethod -Method Get -Uri "$backendUrl/clientes" -Headers $
 $clienteOwner = $clientes | Where-Object { ($_.documento -replace '[^0-9]', '') -eq $cpfOwner } | Select-Object -First 1
 
 if ($null -eq $clienteOwner) {
-  $clienteOwner = Invoke-RestMethod -Method Post -Uri "$backendUrl/clientes" -Headers $adminHeaders -ContentType 'application/json' -Body (@{
+  $json = @{
     nome = 'Cliente Validacao projeto'
     documento = $cpfOwner
     email = 'cliente.projeto@teste.local'
     telefone = '11999999999'
-  } | ConvertTo-Json)
+  } | ConvertTo-Json
+  $clienteOwner = Invoke-RestMethod -Method Post -Uri "$backendUrl/clientes" -Headers $adminHeaders -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json))
 }
 
 $idClienteOwner = [long]$clienteOwner.idCliente
@@ -833,12 +845,13 @@ $clientes = Invoke-RestMethod -Method Get -Uri "$backendUrl/clientes" -Headers $
 $clienteOther = $clientes | Where-Object { ($_.documento -replace '[^0-9]', '') -eq $cpfOther } | Select-Object -First 1
 
 if ($null -eq $clienteOther) {
-  $clienteOther = Invoke-RestMethod -Method Post -Uri "$backendUrl/clientes" -Headers $adminHeaders -ContentType 'application/json' -Body (@{
+  $json = @{
     nome = 'Outro Cliente Validacao projeto'
     documento = $cpfOther
     email = 'outro.projeto@teste.local'
     telefone = '11888888888'
-  } | ConvertTo-Json)
+  } | ConvertTo-Json
+  $clienteOther = Invoke-RestMethod -Method Post -Uri "$backendUrl/clientes" -Headers $adminHeaders -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json))
 }
 
 $idClienteOther = [long]$clienteOther.idCliente
@@ -849,19 +862,23 @@ $idClienteOther
 
 ```powershell
 $placa = 'ABC1D23'
-$veiculos = Invoke-RestMethod -Method Get -Uri "$backendUrl/veiculos" -Headers $adminHeaders
+$veiculos = Invoke-RestMethod -Method Get -Uri "$backendUrl/veiculos/cliente/$idClienteOwner" -Headers $adminHeaders
 $veiculo = $veiculos | Where-Object { $_.placa -eq $placa } | Select-Object -First 1
 
 if ($null -eq $veiculo) {
-  $veiculo = Invoke-RestMethod -Method Post -Uri "$backendUrl/veiculos" -Headers $adminHeaders -ContentType 'application/json' -Body (@{
+  $json = @{
     placa = $placa
     marca = 'Fiat'
     modelo = 'Uno'
     ano = 2020
     idCliente = $idClienteOwner
-  } | ConvertTo-Json)
+  } | ConvertTo-Json
+  $veiculo = Invoke-RestMethod -Method Post -Uri "$backendUrl/veiculos" -Headers $adminHeaders -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json))
 }
+$veiculo.placa
 ```
+
+A listagem de veículos é sempre por cliente (`GET /veiculos/cliente/{idCliente}`); não existe `GET /veiculos`.
 
 ### 15.5 Criar ou reutilizar o serviço
 
@@ -870,11 +887,12 @@ $servicos = Invoke-RestMethod -Method Get -Uri "$backendUrl/servicos" -Headers $
 $servico = $servicos | Where-Object { $_.nome -eq 'Servico Validacao projeto' } | Select-Object -First 1
 
 if ($null -eq $servico) {
-  $servico = Invoke-RestMethod -Method Post -Uri "$backendUrl/servicos" -Headers $adminHeaders -ContentType 'application/json' -Body (@{
+  $json = @{
     nome = 'Servico Validacao projeto'
     descricao = 'Servico criado para validacao ponta a ponta'
     precoBase = 150.00
-  } | ConvertTo-Json)
+  } | ConvertTo-Json
+  $servico = Invoke-RestMethod -Method Post -Uri "$backendUrl/servicos" -Headers $adminHeaders -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json))
 }
 
 $idServico = [long]$servico.idServico
@@ -884,11 +902,12 @@ $idServico
 ### 15.6 Criar a OS e levá-la até aprovação
 
 ```powershell
-$os = Invoke-RestMethod -Method Post -Uri "$backendUrl/ordens-servico" -Headers $adminHeaders -ContentType 'application/json' -Body (@{
+$json = @{
   idCliente = $idClienteOwner
   placa = $placa
   descricaoProblema = 'Validacao ponta a ponta da projeto'
-} | ConvertTo-Json)
+} | ConvertTo-Json
+$os = Invoke-RestMethod -Method Post -Uri "$backendUrl/ordens-servico" -Headers $adminHeaders -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json))
 
 $numeroOs = $os.numero
 $numeroOs
@@ -897,10 +916,11 @@ $numeroOs
 O status inicial deve ser `RECEBIDA`.
 
 ```powershell
-$os = Invoke-RestMethod -Method Post -Uri "$backendUrl/ordens-servico/$numeroOs/servicos" -Headers $adminHeaders -ContentType 'application/json' -Body (@{
+$json = @{
   idServicoSku = $idServico
   quantidade = 1
-} | ConvertTo-Json)
+} | ConvertTo-Json
+$os = Invoke-RestMethod -Method Post -Uri "$backendUrl/ordens-servico/$numeroOs/servicos" -Headers $adminHeaders -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json))
 $os.status
 
 $os = Invoke-RestMethod -Method Post -Uri "$backendUrl/ordens-servico/$numeroOs/enviar-para-aprovacao" -Headers $adminHeaders
