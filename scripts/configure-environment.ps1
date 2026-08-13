@@ -161,25 +161,59 @@ function Get-StoredSecret {
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string]$Prompt,
         [switch]$GenerateWhenEmpty,
+        [scriptblock]$Validator,
+        [int]$MaxAttempts = 3,
         [string]$Directory = $script:SecretsDirectory
     )
 
     New-Item -ItemType Directory -Force $Directory | Out-Null
     $path = Join-Path $Directory "$Name.clixml"
     if (Test-Path $path) {
-        return ConvertFrom-SecureText (Import-Clixml $path)
+        $stored = ConvertFrom-SecureText (Import-Clixml $path)
+        if ($null -ne $Validator) {
+            try {
+                & $Validator $stored
+            }
+            catch {
+                throw "$($_.Exception.Message) Remova somente $path e reexecute o script para informar ou gerar um valor compatível."
+            }
+        }
+        return $stored
     }
 
     $promptText = $Prompt
     if ($GenerateWhenEmpty) {
         $promptText = "$Prompt (Enter vazio para gerar uma nova)"
     }
-    $value = Read-SecretText $promptText
-    if ([string]::IsNullOrWhiteSpace($value)) {
-        if (-not $GenerateWhenEmpty) {
-            throw "$Name não foi informado."
+
+    # O valor só é gravado depois de validado: um valor recusado nunca fica no disco
+    # exigindo remoção manual antes da próxima execução.
+    $value = $null
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        $candidate = Read-SecretText $promptText
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            if (-not $GenerateWhenEmpty) {
+                throw "$Name não foi informado."
+            }
+            $candidate = New-RandomSecret
         }
-        $value = New-RandomSecret
+
+        if ($null -eq $Validator) {
+            $value = $candidate
+            break
+        }
+
+        try {
+            & $Validator $candidate
+            $value = $candidate
+            break
+        }
+        catch {
+            if ($attempt -eq $MaxAttempts) {
+                throw
+            }
+            Write-Warning "$($_.Exception.Message) Informe outro valor ou pressione Enter para gerar um compatível."
+        }
     }
 
     ConvertTo-SecureString $value -AsPlainText -Force | Export-Clixml $path
@@ -1051,13 +1085,10 @@ foreach ($component in @('Kubernetes', 'Database', 'Auth')) {
 }
 
 Write-Host 'Sincronizando secrets permanentes dos workspaces...'
-$dbPassword = Get-StoredSecret -Name 'database-password' -Prompt 'Senha atual do RDS' -GenerateWhenEmpty
-try {
-    Assert-RdsPassword -Password $dbPassword
-}
-catch {
-    $databasePasswordPath = Join-Path $script:SecretsDirectory 'database-password.clixml'
-    throw "$($_.Exception.Message) Remova somente $databasePasswordPath e reexecute o script, pressionando Enter para gerar uma senha compatível."
+$dbPassword = Get-StoredSecret -Name 'database-password' -Prompt 'Senha atual do RDS' -GenerateWhenEmpty -Validator {
+    param($candidate)
+
+    Assert-RdsPassword -Password $candidate
 }
 $appJwtSecret = Get-StoredSecret -Name 'backend-jwt-secret' -Prompt 'Secret HMAC administrativo atual do backend' -GenerateWhenEmpty
 $adminPassword = Get-StoredSecret -Name 'backend-admin-password' -Prompt 'Senha atual do administrador do backend' -GenerateWhenEmpty
