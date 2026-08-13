@@ -783,6 +783,18 @@ $admin.papel
 
 Resultado esperado: `FUNCIONARIO_DA_OFICINA`. Não imprima `$admin.accessToken`.
 
+O valor válido é sempre o do secret `APP_ADMIN_PASSWORD` do ambiente, porque a aplicação sincroniza a senha do admin no start quando ela difere da configurada. Se o login retornar `401`, confirme que o último deploy já rodou com o secret atual (`kubectl rollout restart deployment/oficina-app -n oficina-homolog`) e compare o valor local com o do cluster:
+
+```powershell
+$fromPod = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String((kubectl get secret oficina-secrets -n oficina-homolog -o jsonpath='{.data.ADMIN_PASSWORD}')))
+$local = Import-Clixml C:\fiap-secrets\oficina-homolog\backend-admin-password.clixml
+$localPlain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($local))
+"pod:   " + (Get-FileHash -InputStream ([IO.MemoryStream][Text.Encoding]::UTF8.GetBytes($fromPod)) -Algorithm SHA256).Hash.Substring(0,12)
+"local: " + (Get-FileHash -InputStream ([IO.MemoryStream][Text.Encoding]::UTF8.GetBytes($localPlain)) -Algorithm SHA256).Hash.Substring(0,12)
+```
+
+Se os hashes divergirem, reexecute `.\scripts\configure-environment.ps1 -Environment homolog` e o workflow CD antes de repetir o login.
+
 ### 15.2 Criar ou reutilizar o cliente proprietário
 
 ```powershell
