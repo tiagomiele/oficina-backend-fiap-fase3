@@ -21,11 +21,11 @@ RUN apk add --no-cache curl unzip \
     && rm /tmp/newrelic-java.zip
 
 FROM eclipse-temurin:21-jre-alpine AS runtime
-RUN addgroup -S app && adduser -S app -G app
+RUN addgroup -S -g 10001 app && adduser -S -u 10001 -G app app
 WORKDIR /app
 COPY --from=builder /workspace/target/oficina-backend.jar /app/app.jar
 COPY --from=newrelic /opt/newrelic/newrelic.jar /opt/newrelic/newrelic.jar
-USER app
+USER 10001:10001
 EXPOSE 8080
 ENV JAVA_OPTS="" \
     NEW_RELIC_LOG_FILE_NAME=STDOUT \
