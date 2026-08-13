@@ -806,10 +806,9 @@ function Set-GitHubSecret {
         [Parameter(Mandatory)][string]$Value
     )
 
-    $Value | & gh secret set $Name --repo "$GitHubOwner/$Repository" --env $EnvironmentName
-    if ($LASTEXITCODE -ne 0) {
-        throw "Falha ao atualizar o secret $Name em $Repository/$EnvironmentName."
-    }
+    # --body preserva o valor exato: enviar por pipe acrescenta a quebra de linha do
+    # PowerShell ao segredo e o consumidor recebe um valor diferente do armazenado.
+    Invoke-Gh @('secret', 'set', $Name, '--body', $Value, '--repo', "$GitHubOwner/$Repository", '--env', $EnvironmentName)
 }
 
 function Get-TerraformOutputs {
