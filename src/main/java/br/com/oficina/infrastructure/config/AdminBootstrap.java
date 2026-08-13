@@ -33,12 +33,22 @@ public class AdminBootstrap {
   }
 
   @EventListener(ApplicationReadyEvent.class)
-  public void criarAdminSeAusente() {
-    if (users.existePorEmail(email)) {
-      return;
+  public void sincronizarAdmin() {
+    User admin =
+        users
+            .porEmail(email)
+            .orElseGet(
+                () -> {
+                  User novo =
+                      User.criar(email, encoder.encode(senha), Papel.FUNCIONARIO_DA_OFICINA);
+                  users.salvar(novo);
+                  log.info("Usuário admin criado: {}", email);
+                  return novo;
+                });
+    if (!encoder.matches(senha, admin.getSenhaHash())) {
+      admin.trocarSenha(encoder.encode(senha));
+      users.salvar(admin);
+      log.info("Senha do usuário admin sincronizada com a configuração: {}", email);
     }
-    User admin = User.criar(email, encoder.encode(senha), Papel.FUNCIONARIO_DA_OFICINA);
-    users.salvar(admin);
-    log.info("Usuário admin criado: {}", email);
   }
 }
