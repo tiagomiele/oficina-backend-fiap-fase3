@@ -245,13 +245,27 @@ O GitHub Environment do backend permanece com `DEPLOY_ENABLED=false` enquanto os
 
 ### 3.4 New Relic
 
-Na primeira preparação do New Relic para cada ambiente, use:
+Crie uma conta New Relic na região US em <https://newrelic.com/signup> e abra <https://one.newrelic.com/api-keys>. Obtenha os três valores abaixo antes da primeira configuração:
+
+1. **Account ID:** número exibido no seletor de conta ou em **Administration → Access management → Accounts**;
+2. **User API key:** clique em **Create a key**, selecione **User** e use o nome `oficina-terraform`; normalmente começa com `NRAK-`;
+3. **License key:** clique em **Create a key**, selecione **Ingest - License** e use o nome `oficina-observability`.
+
+Copie as chaves completas no momento da criação. O New Relic deixa de exibi-las integralmente depois. Não use Browser key, não tire capturas das chaves e não as envie em chats ou documentos.
+
+Inicie uma sessão válida do AWS Academy, copie o bloco `[default]` completo e execute:
 
 ```powershell
 .\scripts\configure-environment.ps1 -Environment homolog -ConfigureNewRelic
 ```
 
-Não crie o workspace de New Relic manualmente: a execução efetiva do script cria `oficina-newrelic-homolog` e `oficina-newrelic-production` com Working Directory `observability/newrelic`. Account ID, API key e License key são solicitados somente na primeira configuração e reutilizados para homologação e produção a partir de `C:\fiap-secrets\shared`, sem impressão dos valores. A versão pública da camada Java ARM64 é descoberta automaticamente na AWS.
+Informe, na ordem solicitada, Account ID, User API key e License key. As chaves são digitadas em campos invisíveis. Não crie o workspace manualmente: o script cria `oficina-newrelic-homolog` e `oficina-newrelic-production` com Working Directory `observability/newrelic`. Os valores são reutilizados para homologação e produção a partir de `C:\fiap-secrets\shared`, sem impressão. A versão da camada Java ARM64 é obtida pela API pública oficial <https://layers.newrelic-external.com/>.
+
+Se uma User API key for exposta ou revogada, crie outra e remova somente a cópia local antes de reexecutar o comando:
+
+```powershell
+Remove-Item C:\fiap-secrets\shared\newrelic-api-key.clixml
+```
 
 ### 3.5 Limitação inevitável
 

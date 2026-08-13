@@ -869,6 +869,35 @@ function Get-KubernetesBackendUrl {
     "http://$hostname"
 }
 
+function Get-NewRelicLayerVersion {
+    param(
+        [string]$Region = 'us-west-2',
+        [string]$Runtime = 'java21',
+        [string]$Architecture = 'arm64',
+        [string]$LayerName = 'NewRelicAgentJavaARM64-slim'
+    )
+
+    $uri = "https://$Region.layers.newrelic-external.com/get-layers?CompatibleRuntime=$Runtime&CompatibleArchitecture=$Architecture"
+    try {
+        $response = Invoke-RestMethod -Method GET -Uri $uri -ErrorAction Stop
+    }
+    catch {
+        throw "Não foi possível consultar as camadas públicas do New Relic: $($_.Exception.Message)"
+    }
+
+    $layer = @($response.Layers | Where-Object { [string]$_.LayerName -eq $LayerName }) | Select-Object -First 1
+    if ($null -eq $layer) {
+        throw "A camada $LayerName não foi encontrada para $Runtime/$Architecture em $Region."
+    }
+
+    $version = [string]$layer.LatestMatchingVersion.Version
+    if ($version -notmatch '^\d+$') {
+        throw "A API pública do New Relic retornou uma versão inválida para $LayerName."
+    }
+
+    [int]$version
+}
+
 function Write-EnvironmentContext {
     param(
         [Parameter(Mandatory)][Collections.IDictionary]$Values,
@@ -1204,20 +1233,7 @@ if ($ConfigureNewRelic) {
     $apiKey = Get-StoredSecret -Name 'newrelic-api-key' -Prompt 'New Relic User API key' -Directory $sharedSecretsDirectory
     $licenseKey = Get-StoredSecret -Name 'newrelic-license-key' -Prompt 'New Relic License key' -Directory $sharedSecretsDirectory
     $newRelicWorkspace = Get-HcpWorkspace $WorkspaceNames.NewRelic[$Environment]
-    $newRelicLayerArn = 'arn:aws:lambda:us-west-2:451483290750:layer:NewRelicAgentJavaARM64-slim'
-    $previousErrorActionPreference = $ErrorActionPreference
-    try {
-        $ErrorActionPreference = 'Continue'
-        $newRelicLayerOutput = @(& aws lambda list-layer-versions --layer-name $newRelicLayerArn --query 'LayerVersions[0].Version' --output text 2>&1)
-        $newRelicLayerExitCode = $LASTEXITCODE
-    }
-    finally {
-        $ErrorActionPreference = $previousErrorActionPreference
-    }
-    $newRelicLayerVersion = ($newRelicLayerOutput -join '').Trim()
-    if ($newRelicLayerExitCode -ne 0 -or $newRelicLayerVersion -notmatch '^\d+$') {
-        throw 'Não foi possível descobrir a versão atual da camada Java ARM64 do New Relic em us-west-2.'
-    }
+    $newRelicLayerVersion = Get-NewRelicLayerVersion
 
     Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key environment -Value $Environment
     Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key newrelic_account_id -Value $accountId -Hcl $true
