@@ -9,6 +9,12 @@ if ($errors.Count -gt 0) {
     throw ($errors | Out-String)
 }
 
+# '?' é aceito em nomes de variável: interpolação sem chaves engole o separador da query string.
+$unbracedInterpolation = Select-String -Path $source -Pattern '\$[A-Za-z_][A-Za-z0-9_]*\?' | Select-Object -First 1
+if ($null -ne $unbracedInterpolation) {
+    throw "Use `${variavel} antes de '?' em interpolação: $($unbracedInterpolation.Line.Trim())"
+}
+
 foreach ($name in @('Assert-TerraformPlatform', 'Assert-RdsPassword', 'ConvertFrom-SecureText', 'New-RandomSecret', 'Get-StoredSecret', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion')) {
     $functionAst = $ast.FindAll({
         param($node)
