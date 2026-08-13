@@ -121,6 +121,22 @@ function New-RandomSecret {
     ([Convert]::ToBase64String($bytes).TrimEnd('=') -replace '[+/]', 'A') + '!a9'
 }
 
+function Assert-RdsPassword {
+    param([Parameter(Mandatory)][string]$Password)
+
+    if ($Password.Length -lt 16 -or $Password.Length -gt 128) {
+        throw 'A senha do RDS deve possuir entre 16 e 128 caracteres.'
+    }
+
+    $invalidCharacter = $Password.ToCharArray() | Where-Object {
+        $code = [int]$_
+        $code -lt 33 -or $code -gt 126 -or $_ -in @('/', '@', '"')
+    } | Select-Object -First 1
+    if ($null -ne $invalidCharacter) {
+        throw 'A senha do RDS deve usar somente ASCII imprimível e não pode conter barra, arroba, aspas ou espaço.'
+    }
+}
+
 function Get-StoredValue {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -1036,6 +1052,13 @@ foreach ($component in @('Kubernetes', 'Database', 'Auth')) {
 
 Write-Host 'Sincronizando secrets permanentes dos workspaces...'
 $dbPassword = Get-StoredSecret -Name 'database-password' -Prompt 'Senha atual do RDS' -GenerateWhenEmpty
+try {
+    Assert-RdsPassword -Password $dbPassword
+}
+catch {
+    $databasePasswordPath = Join-Path $script:SecretsDirectory 'database-password.clixml'
+    throw "$($_.Exception.Message) Remova somente $databasePasswordPath e reexecute o script, pressionando Enter para gerar uma senha compatível."
+}
 $appJwtSecret = Get-StoredSecret -Name 'backend-jwt-secret' -Prompt 'Secret HMAC administrativo atual do backend' -GenerateWhenEmpty
 $adminPassword = Get-StoredSecret -Name 'backend-admin-password' -Prompt 'Senha atual do administrador do backend' -GenerateWhenEmpty
 

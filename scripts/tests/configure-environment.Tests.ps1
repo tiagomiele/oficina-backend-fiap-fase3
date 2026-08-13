@@ -9,7 +9,7 @@ if ($errors.Count -gt 0) {
     throw ($errors | Out-String)
 }
 
-foreach ($name in @('Assert-TerraformPlatform', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion')) {
+foreach ($name in @('Assert-TerraformPlatform', 'Assert-RdsPassword', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion')) {
     $functionAst = $ast.FindAll({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -18,6 +18,25 @@ foreach ($name in @('Assert-TerraformPlatform', 'Get-HcpApiStatusCode', 'Get-Hcp
         throw "Function not found: $name"
     }
     Invoke-Expression $functionAst.Extent.Text
+}
+
+Assert-RdsPassword -Password 'SafeRdsPassword!123456789'
+foreach ($invalidPassword in @(
+    'invalid@password123456',
+    'invalid/password123456',
+    'invalid"password123456',
+    'invalid password123456',
+    'invalidçpassword123456'
+)) {
+    try {
+        Assert-RdsPassword -Password $invalidPassword
+        throw 'Invalid RDS password must be rejected.'
+    }
+    catch {
+        if ($_.Exception.Message -eq 'Invalid RDS password must be rejected.') {
+            throw
+        }
+    }
 }
 
 $apiException = [InvalidOperationException]::new('HTTP 400')

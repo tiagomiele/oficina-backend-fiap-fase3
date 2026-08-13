@@ -175,6 +175,8 @@ Secrets estáveis são armazenados fora dos repositórios em `C:\fiap-secrets\of
 - par RSA em arquivos PEM locais;
 - nenhum desses arquivos deve ser versionado, copiado para prints ou exibido em logs.
 
+No primeiro prompt `Senha atual do RDS`, pressione Enter para o script gerar uma senha compatível com a AWS. Se uma senha existente for rejeitada, remova somente `C:\fiap-secrets\oficina-<ambiente>\database-password.clixml` e reexecute o script; não edite a variável sensível diretamente no HCP Terraform.
+
 Na primeira execução de um ambiente, informe os valores atuais já usados pela infraestrutura. Pressione Enter para gerar um valor novo somente quando o ambiente ainda não tiver sido criado.
 
 ### 3.2 Renovar a sessão do AWS Academy uma única vez
