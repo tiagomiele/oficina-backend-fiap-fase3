@@ -32,11 +32,15 @@ jobs:
       SERVERLESS_JWT_AUDIENCE: ${{ vars.SERVERLESS_JWT_AUDIENCE || 'oficina-backend' }}
       NEW_RELIC_ENABLED: ${{ vars.NEW_RELIC_ENABLED || 'false' }}
       NEW_RELIC_APP_NAME: ${{ vars.NEW_RELIC_APP_NAME }}
+      NOTIFICATION_ENDPOINT: ${{ vars.NOTIFICATION_ENDPOINT }}
       DEPLOY_ENABLED: ${{ vars.DEPLOY_ENABLED || 'false' }}
     steps:
       - name: Deployment gate
-        if: env.DEPLOY_ENABLED != 'true'
-        run: echo '::notice::Deploy ignorado. Execute scripts/configure-environment.ps1 após os applies de EKS e RDS.'
+        run: |
+          if [ "$DEPLOY_ENABLED" != "true" ]; then
+            echo '::error::Deploy bloqueado: DEPLOY_ENABLED deve valer true após a sincronização dos outputs de EKS e RDS.'
+            exit 1
+          fi
 
       - uses: actions/checkout@v4
         if: env.DEPLOY_ENABLED == 'true'
@@ -52,6 +56,7 @@ jobs:
           APP_ADMIN_PASSWORD: ${{ secrets.APP_ADMIN_PASSWORD }}
           APP_SERVERLESS_JWT_PUBLIC_KEY: ${{ secrets.SERVERLESS_JWT_PUBLIC_KEY }}
           NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
+          NOTIFICATION_API_KEY: ${{ secrets.NOTIFICATION_API_KEY }}
         run: |
           set -euo pipefail
           missing=()
@@ -63,6 +68,9 @@ jobs:
           done
           if [ "${NEW_RELIC_ENABLED,,}" = "true" ] && [ -z "$NEW_RELIC_LICENSE_KEY" ]; then
             missing+=("NEW_RELIC_LICENSE_KEY")
+          fi
+          if [ -n "$NOTIFICATION_ENDPOINT" ] && [ -z "$NOTIFICATION_API_KEY" ]; then
+            missing+=("NOTIFICATION_API_KEY")
           fi
           if [ "${#missing[@]}" -gt 0 ]; then
             printf '::error::Configure no GitHub Environment %s: %s\n' '${{ inputs.environment }}' "${missing[*]}"
@@ -107,7 +115,7 @@ jobs:
           set -euo pipefail
           rm -rf rendered
           mkdir -p rendered
-          cp k8s/namespace.yaml k8s/app-deployment.yaml k8s/app-service.yaml k8s/hpa.yaml rendered/
+          cp k8s/namespace.yaml k8s/app-deployment.yaml k8s/app-service.yaml k8s/hpa.yaml k8s/pdb.yaml rendered/
           sed -i "s|name: oficina$|name: ${TARGET_NS}|" rendered/namespace.yaml
           sed -i "s|namespace: oficina$|namespace: ${TARGET_NS}|" rendered/*.yaml
           sed -i "s|image: oficina-backend:latest|image: ${IMAGE_REF}|" rendered/app-deployment.yaml
@@ -122,11 +130,14 @@ jobs:
           APP_ADMIN_PASSWORD: ${{ secrets.APP_ADMIN_PASSWORD }}
           APP_SERVERLESS_JWT_PUBLIC_KEY: ${{ secrets.SERVERLESS_JWT_PUBLIC_KEY }}
           NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
+          NOTIFICATION_API_KEY: ${{ secrets.NOTIFICATION_API_KEY }}
         run: |
           set -euo pipefail
           nr_enabled="${NEW_RELIC_ENABLED,,}"
           if [ "$nr_enabled" != "true" ]; then nr_enabled=false; fi
           nr_app_name="${NEW_RELIC_APP_NAME:-oficina-backend-${{ inputs.environment }}}"
+          notification_type=log
+          if [ -n "$NOTIFICATION_ENDPOINT" ]; then notification_type=serverless; fi
           kubectl create configmap oficina-config \
             --namespace "$TARGET_NS" \
             --from-literal=DB_URL="$APP_DB_URL" \
@@ -135,7 +146,8 @@ jobs:
             --from-literal=SPRING_PROFILES_ACTIVE=prod \
             --from-literal=OFICINA_ENVIRONMENT='${{ inputs.environment }}' \
             --from-literal=ADMIN_EMAIL=admin@oficina.local \
-            --from-literal=NOTIFICACAO_TIPO=log \
+            --from-literal=NOTIFICACAO_TIPO="$notification_type" \
+            --from-literal=NOTIFICATION_ENDPOINT="$NOTIFICATION_ENDPOINT" \
             --from-literal=SERVERLESS_JWT_ISSUER="$SERVERLESS_JWT_ISSUER" \
             --from-literal=SERVERLESS_JWT_AUDIENCE="$SERVERLESS_JWT_AUDIENCE" \
             --from-literal=JAVA_TOOL_OPTIONS=-javaagent:/opt/newrelic/newrelic.jar \
@@ -155,6 +167,7 @@ jobs:
             --from-literal=ADMIN_PASSWORD="$APP_ADMIN_PASSWORD" \
             --from-literal=SERVERLESS_JWT_PUBLIC_KEY="$APP_SERVERLESS_JWT_PUBLIC_KEY" \
             --from-literal=NEW_RELIC_LICENSE_KEY="$NEW_RELIC_LICENSE_KEY" \
+            --from-literal=NOTIFICATION_API_KEY="$NOTIFICATION_API_KEY" \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Apply application manifests
@@ -164,6 +177,7 @@ jobs:
           kubectl apply -f rendered/app-deployment.yaml
           kubectl apply -f rendered/app-service.yaml
           kubectl apply -f rendered/hpa.yaml
+          kubectl apply -f rendered/pdb.yaml
 
       - name: Wait for application rollout
         if: env.DEPLOY_ENABLED == 'true'

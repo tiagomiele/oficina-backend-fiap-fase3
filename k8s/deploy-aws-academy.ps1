@@ -70,17 +70,31 @@ param(
   [string]$MailHost      = $env:MAIL_HOST,
   [string]$MailPort      = "587",
   [string]$MailUser      = $env:MAIL_USERNAME,
-  [string]$MailPassword  = $env:MAIL_PASSWORD,
-  [string]$MailFrom      = "nao-responder@oficina.local"
+  [string]$MailPassword          = $env:MAIL_PASSWORD,
+  [string]$MailFrom              = "nao-responder@oficina.local",
+  [string]$NotificationEndpoint  = $env:NOTIFICATION_ENDPOINT,
+  [string]$NotificationApiKey    = $env:NOTIFICATION_API_KEY,
+  [string]$ServerlessJwtPublicKey = $env:SERVERLESS_JWT_PUBLIC_KEY,
+  [string]$ServerlessJwtIssuer    = "oficina-auth-serverless",
+  [string]$ServerlessJwtAudience  = "oficina-backend"
 )
 
-# Modo de notificacao: 'smtp' quando um host SMTP foi informado, senao 'log'.
-if ([string]::IsNullOrWhiteSpace($MailHost)) {
-  $NotificacaoTipo = "log"
-  Write-Host "==> Notificacao: modo 'log' (e-mail ficticio). Para e-mail real, passe -MailHost/-MailUser/-MailPassword." -ForegroundColor Yellow
-} else {
+if ([string]::IsNullOrWhiteSpace($ServerlessJwtPublicKey)) {
+  throw "ServerlessJwtPublicKey e obrigatoria para validar os tokens emitidos pela autenticacao."
+}
+
+if (-not [string]::IsNullOrWhiteSpace($NotificationEndpoint)) {
+  if ([string]::IsNullOrWhiteSpace($NotificationApiKey)) {
+    throw "NotificationApiKey e obrigatoria quando NotificationEndpoint for informado."
+  }
+  $NotificacaoTipo = "serverless"
+  Write-Host "==> Notificacao: modo serverless" -ForegroundColor Green
+} elseif (-not [string]::IsNullOrWhiteSpace($MailHost)) {
   $NotificacaoTipo = "smtp"
   Write-Host "==> Notificacao: modo 'smtp' via $MailHost`:$MailPort" -ForegroundColor Green
+} else {
+  $NotificacaoTipo = "log"
+  Write-Host "==> Notificacao: modo 'log'" -ForegroundColor Yellow
 }
 
 if ([string]::IsNullOrWhiteSpace($JwtSecret)) {
@@ -130,6 +144,9 @@ data:
   NOTIFICACAO_REMETENTE: "${MailFrom}"
   MAIL_HOST: "${MailHost}"
   MAIL_PORT: "${MailPort}"
+  NOTIFICATION_ENDPOINT: "${NotificationEndpoint}"
+  SERVERLESS_JWT_ISSUER: "${ServerlessJwtIssuer}"
+  SERVERLESS_JWT_AUDIENCE: "${ServerlessJwtAudience}"
 "@ | kubectl apply -f -
 
 # 3) Secret com a MESMA senha do RDS.
@@ -139,11 +156,14 @@ $secretArgs = @(
   "generic", "oficina-secrets", "--namespace", "oficina",
   "--from-literal=DB_PASSWORD=$DbPassword",
   "--from-literal=JWT_SECRET=$JwtSecret",
-  "--from-literal=ADMIN_PASSWORD=$AdminPassword"
+  "--from-literal=ADMIN_PASSWORD=$AdminPassword",
+  "--from-literal=SERVERLESS_JWT_PUBLIC_KEY=$ServerlessJwtPublicKey"
 )
 if ($NotificacaoTipo -eq "smtp") {
   $secretArgs += "--from-literal=MAIL_USERNAME=$MailUser"
   $secretArgs += "--from-literal=MAIL_PASSWORD=$MailPassword"
+} elseif ($NotificacaoTipo -eq "serverless") {
+  $secretArgs += "--from-literal=NOTIFICATION_API_KEY=$NotificationApiKey"
 }
 kubectl create secret @secretArgs --dry-run=client -o yaml | kubectl apply -f -
 
@@ -153,6 +173,7 @@ $deploy = $deploy -replace 'image:\s*oficina-backend:latest', "image: $Image"
 $deploy | kubectl apply -f -
 kubectl apply -f (Join-Path $here "app-service.yaml")
 kubectl apply -f (Join-Path $here "hpa.yaml")
+kubectl apply -f (Join-Path $here "pdb.yaml")
 
 Write-Host ""
 Write-Host "==> Deploy aplicado. Acompanhe os pods:" -ForegroundColor Cyan

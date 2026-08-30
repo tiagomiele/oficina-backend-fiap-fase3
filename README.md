@@ -13,7 +13,8 @@ Este repositório contém somente a aplicação Spring Boot e os artefatos neces
 - persistência e migrações Flyway;
 - validação dos JWTs emitidos pelo serviço serverless;
 - métricas, logs estruturados e instrumentação APM;
-- imagem Docker e deploy da aplicação no EKS.
+- publicação de notificações pelo contrato serverless;
+- imagem Docker e deploy da aplicação no EKS com HPA, distribuição de pods e PDB.
 
 A infraestrutura AWS, o banco gerenciado e a autenticação serverless pertencem a repositórios separados. O Terraform combinado da Fase 2 foi removido deste repositório e substituído por states e pipelines independentes.
 
@@ -26,6 +27,7 @@ flowchart LR
     Auth --> RDS[(RDS PostgreSQL)]
     APIGW --> App[Aplicação Spring Boot no EKS]
     App --> RDS
+    App --> Notify[Lambda + SNS + SES]
     App --> NR[New Relic]
     Auth --> NR
     EKS[EKS e HPA] --> NR
@@ -46,7 +48,7 @@ flowchart LR
 - PostgreSQL 16, JPA/Hibernate e Flyway;
 - Spring Security e JWT;
 - JUnit 5, RestAssured, ArchUnit e JaCoCo;
-- Docker, Kubernetes e HPA;
+- Docker, Kubernetes, HPA, topology spread e PodDisruptionBudget;
 - GitHub Actions e GHCR;
 - New Relic APM e logs estruturados.
 
@@ -89,7 +91,7 @@ Com os quatro repositórios clonados como diretórios irmãos, copie o bloco `[d
 .\scripts\configure-environment.ps1 -Environment production
 ```
 
-O script cria/configura o projeto e os oito workspaces HCP, renova AWS CLI, Variable Set e GitHub Environments, preserva secrets fora do Git e sincroniza outputs entre os states. Ele não executa apply ou deploy. O CD permanece bloqueado sem erro até existirem outputs reais de EKS e RDS; depois disso, o próprio script habilita o deploy. Consulte o [guia geral](docs/validation/general-project.md).
+O script cria/configura o projeto e os oito workspaces HCP, renova AWS CLI, Variable Set e GitHub Environments, preserva secrets fora do Git e sincroniza outputs entre os states. Na primeira execução, informe o remetente do SES; a chave técnica é gerada e reutilizada automaticamente. Use `-CreateSesIdentity` somente no ambiente que será responsável por solicitar a verificação desse remetente. Produção recebe por padrão RDS Multi-AZ, proteção contra exclusão e snapshot final; `-UseAwsAcademyDisposableProductionProfile` é um override explícito, sem HA, somente para demonstração descartável. O script não executa apply ou deploy. Consulte o [guia geral](docs/validation/general-project.md).
 
 ## Documentação
 
@@ -97,6 +99,7 @@ O script cria/configura o projeto e os oito workspaces HCP, renova AWS CLI, Vari
 - [Arquitetura geral](docs/architecture/overview.md)
 - [Limites dos repositórios](docs/architecture/repository-boundaries.md)
 - [Fluxo de autenticação por CPF](docs/architecture/authentication-flow.md)
+- [Sequência de abertura da Ordem de Serviço](docs/architecture/service-order-opening-flow.md)
 - [Observabilidade com New Relic](docs/architecture/observability-new-relic.md)
 - [Evolução do banco de dados](docs/architecture/database-evolution.md)
 - [Migração da infraestrutura da Fase 2](docs/architecture/infrastructure-migration.md)
@@ -110,7 +113,7 @@ O script cria/configura o projeto e os oito workspaces HCP, renova AWS CLI, Vari
 
 ## Segurança e configuração
 
-Segredos não devem ser versionados. Banco, JWT, New Relic e SMTP são configurados por variáveis de ambiente e GitHub Environments. Consulte os documentos específicos antes de executar deploy.
+Segredos não devem ser versionados. Banco, JWT, New Relic, chave técnica da notificação e SMTP de contingência são configurados por variáveis de ambiente e GitHub Environments. O modo integrado usa `NOTIFICATION_ENDPOINT`, `NOTIFICATION_API_KEY` e `NOTIFICACAO_TIPO=serverless`. Consulte os documentos específicos antes de executar deploy.
 
 ## Contribuição
 

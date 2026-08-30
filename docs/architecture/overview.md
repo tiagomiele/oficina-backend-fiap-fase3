@@ -13,6 +13,10 @@ flowchart TB
     LB[Load Balancer interno]
     App[Spring Boot no Amazon EKS]
     DB[(Amazon RDS PostgreSQL)]
+    NotificationApi[Lambda de ingresso de notificações]
+    Topic[Amazon SNS]
+    NotificationWorker[Lambda de entrega]
+    SES[Amazon SES]
     NR[New Relic]
     GH[GitHub Actions e GHCR]
     TF[HCP Terraform]
@@ -25,6 +29,10 @@ flowchart TB
     LB --> App
     Login --> DB
     App --> DB
+    App --> NotificationApi
+    NotificationApi --> Topic
+    Topic --> NotificationWorker
+    NotificationWorker --> SES
     Login --> NR
     App --> NR
     Gateway --> NR
@@ -41,7 +49,9 @@ flowchart TB
 4. O token acompanha as chamadas protegidas pelo API Gateway.
 5. O autorizador valida assinatura, emissor, audiência e expiração.
 6. O API Gateway encaminha a chamada autorizada para a aplicação no EKS.
-7. Aplicação, Lambda, Kubernetes e API Gateway enviam telemetria ao New Relic.
+7. Mudanças relevantes da OS são aceitas por uma Lambda autenticada e publicadas no SNS.
+8. Uma Lambda consumidora entrega o e-mail pelo SES sem bloquear a transação da OS.
+9. Aplicação, Lambdas, Kubernetes, API Gateway e RDS enviam telemetria ao New Relic.
 
 ## Princípios
 

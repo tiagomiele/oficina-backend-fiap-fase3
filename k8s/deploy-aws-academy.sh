@@ -14,9 +14,8 @@
 #   DB_INSTANCE_ID (default oficina-homolog-db), DB_NAME e DB_USER
 #   JWT_SECRET (se vazio, e gerado aleatorio) / ADMIN_PASSWORD (default de DEV)
 #   SERVERLESS_JWT_PUBLIC_KEY (obrigatoria), SERVERLESS_JWT_ISSUER e SERVERLESS_JWT_AUDIENCE
-#   E-mail real (opcional): MAIL_HOST, MAIL_PORT (default 587), MAIL_USERNAME,
-#     MAIL_PASSWORD, MAIL_FROM (default nao-responder@oficina.local). Se MAIL_HOST
-#     for informado, ativa NOTIFICACAO_TIPO=smtp; senao usa modo 'log' (ficticio).
+#   Notificacao serverless (preferencial): NOTIFICATION_ENDPOINT e NOTIFICATION_API_KEY.
+#   Fallback SMTP: MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD e MAIL_FROM.
 #   Ex. Mailtrap:
 #     DB_PASSWORD=... MAIL_HOST=sandbox.smtp.mailtrap.io MAIL_USERNAME=... \
 #       MAIL_PASSWORD=... ./deploy-aws-academy.sh
@@ -32,16 +31,25 @@ MAIL_PORT="${MAIL_PORT:-587}"
 MAIL_USERNAME="${MAIL_USERNAME:-}"
 MAIL_PASSWORD="${MAIL_PASSWORD:-}"
 MAIL_FROM="${MAIL_FROM:-nao-responder@oficina.local}"
+NOTIFICATION_ENDPOINT="${NOTIFICATION_ENDPOINT:-}"
+NOTIFICATION_API_KEY="${NOTIFICATION_API_KEY:-}"
 SERVERLESS_JWT_ISSUER="${SERVERLESS_JWT_ISSUER:-oficina-auth-serverless}"
 SERVERLESS_JWT_AUDIENCE="${SERVERLESS_JWT_AUDIENCE:-oficina-backend}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [[ -z "$MAIL_HOST" ]]; then
-  NOTIFICACAO_TIPO="log"
-  echo "==> Notificacao: modo 'log' (e-mail ficticio). Para e-mail real, defina MAIL_HOST/MAIL_USERNAME/MAIL_PASSWORD."
-else
+if [[ -n "$NOTIFICATION_ENDPOINT" ]]; then
+  if [[ -z "$NOTIFICATION_API_KEY" ]]; then
+    echo "ERRO: defina NOTIFICATION_API_KEY ao usar NOTIFICATION_ENDPOINT." >&2
+    exit 1
+  fi
+  NOTIFICACAO_TIPO="serverless"
+  echo "==> Notificacao: modo serverless"
+elif [[ -n "$MAIL_HOST" ]]; then
   NOTIFICACAO_TIPO="smtp"
   echo "==> Notificacao: modo 'smtp' via ${MAIL_HOST}:${MAIL_PORT}"
+else
+  NOTIFICACAO_TIPO="log"
+  echo "==> Notificacao: modo 'log'"
 fi
 
 if [[ -z "${DB_PASSWORD:-}" ]]; then
@@ -93,6 +101,7 @@ data:
   NOTIFICACAO_REMETENTE: "${MAIL_FROM}"
   MAIL_HOST: "${MAIL_HOST}"
   MAIL_PORT: "${MAIL_PORT}"
+  NOTIFICATION_ENDPOINT: "${NOTIFICATION_ENDPOINT}"
   SERVERLESS_JWT_ISSUER: "${SERVERLESS_JWT_ISSUER}"
   SERVERLESS_JWT_AUDIENCE: "${SERVERLESS_JWT_AUDIENCE}"
 YAML
@@ -107,12 +116,15 @@ SECRET_ARGS=(generic oficina-secrets --namespace oficina
 if [[ "$NOTIFICACAO_TIPO" == "smtp" ]]; then
   SECRET_ARGS+=(--from-literal=MAIL_USERNAME="${MAIL_USERNAME}")
   SECRET_ARGS+=(--from-literal=MAIL_PASSWORD="${MAIL_PASSWORD}")
+elif [[ "$NOTIFICACAO_TIPO" == "serverless" ]]; then
+  SECRET_ARGS+=(--from-literal=NOTIFICATION_API_KEY="${NOTIFICATION_API_KEY}")
 fi
 kubectl create secret "${SECRET_ARGS[@]}" --dry-run=client -o yaml | kubectl apply -f -
 
 sed "s#image: oficina-backend:latest#image: ${IMAGE}#" "$HERE/app-deployment.yaml" | kubectl apply -f -
 kubectl apply -f "$HERE/app-service.yaml"
 kubectl apply -f "$HERE/hpa.yaml"
+kubectl apply -f "$HERE/pdb.yaml"
 
 echo
 echo "==> Deploy aplicado. Acompanhe:"
