@@ -1352,7 +1352,7 @@ A validação só estará concluída após executar também as seções de obser
 
 Não reutilize variáveis do PowerShell de homologação. Produção possui state, secrets, chaves RSA, namespace e URLs próprios. Antes de começar, confirme no GitHub que a branch `homolog` validada foi promovida por PR para `main` nos quatro repositórios. Não faça push direto para `main`.
 
-Abra um PowerShell novo, inicie o Learner Lab e copie novamente o bloco `[default]` completo para o clipboard. Sem copiar outro texto, configure somente produção:
+Abra um PowerShell novo, inicie o Learner Lab e copie novamente o bloco `[default]` completo para o clipboard. Sem copiar outro texto, configure somente produção. O comando padrão sincroniza o perfil real: RDS Multi-AZ, proteção contra exclusão e snapshot final.
 
 ```powershell
 Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
@@ -1360,6 +1360,14 @@ Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
 .\scripts\configure-environment.ps1 -Environment production
 . C:\fiap-secrets\oficina-production\environment-context.ps1
 ```
+
+Não aplique esse perfil no Learner Lab sem autorizar o custo e planejar a remoção da proteção. Se for indispensável demonstrar e destruir uma produção lógica na mesma sessão acadêmica, substitua o segundo comando por:
+
+```powershell
+.\scripts\configure-environment.ps1 -Environment production -UseAwsAcademyDisposableProductionProfile
+```
+
+Esse override desliga Multi-AZ, proteção e snapshot final somente no workspace; ele não representa produção HA. Registre a limitação na evidência e reexecute o comando padrão antes da promoção final.
 
 #### 24.1.1 Kubernetes de produção
 

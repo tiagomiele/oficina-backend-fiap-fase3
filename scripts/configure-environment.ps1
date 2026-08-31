@@ -7,8 +7,11 @@ param(
     [string]$TerraformProject = 'soat-fase3',
     [string]$AwsCredentialsFile,
     [string]$SecretsRoot,
+    [string]$NotificationSourceEmail = $env:NOTIFICATION_SOURCE_EMAIL,
+    [switch]$CreateSesIdentity,
     [switch]$ConfigureNewRelic,
     [switch]$DisableObservability,
+    [switch]$UseAwsAcademyDisposableProductionProfile,
     [switch]$SkipGitHub,
     [switch]$ValidateOnly
 )
@@ -134,6 +137,14 @@ function Assert-RdsPassword {
     } | Select-Object -First 1
     if ($null -ne $invalidCharacter) {
         throw 'A senha do RDS deve usar somente ASCII imprimível e não pode conter barra, arroba, aspas ou espaço.'
+    }
+}
+
+function Assert-NotificationSourceEmail {
+    param([Parameter(Mandatory)][string]$Email)
+
+    if ($Email.Length -gt 320 -or $Email -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') {
+        throw 'O remetente de notificação deve ser um endereço de e-mail válido com até 320 caracteres.'
     }
 }
 
@@ -1077,8 +1088,20 @@ foreach ($component in @('Kubernetes', 'Database', 'Auth')) {
         }
         Set-HcpWorkspaceVariable -Workspace $workspace -Key environment -Value $targetEnvironment
         if ($component -eq 'Database') {
-            $backupRetentionDays = if ($targetEnvironment -eq 'production') { '14' } else { '7' }
+            $isProduction = $targetEnvironment -eq 'production'
+            $hardenedProduction = $isProduction -and -not $UseAwsAcademyDisposableProductionProfile
+            $backupRetentionDays = if ($isProduction) { '14' } else { '7' }
+            $multiAz = if ($hardenedProduction) { 'true' } else { 'false' }
+            $deletionProtection = if ($hardenedProduction) { 'true' } else { 'false' }
+            $skipFinalSnapshot = if ($hardenedProduction) { 'false' } else { 'true' }
+
             Set-HcpWorkspaceVariable -Workspace $workspace -Key backup_retention_days -Value $backupRetentionDays -Hcl $true
+            Set-HcpWorkspaceVariable -Workspace $workspace -Key multi_az -Value $multiAz -Hcl $true
+            Set-HcpWorkspaceVariable -Workspace $workspace -Key deletion_protection -Value $deletionProtection -Hcl $true
+            Set-HcpWorkspaceVariable -Workspace $workspace -Key skip_final_snapshot -Value $skipFinalSnapshot -Hcl $true
+            if ($isProduction) {
+                Set-HcpWorkspaceVariable -Workspace $workspace -Key final_snapshot_identifier -Value 'oficina-production-db-final'
+            }
         }
     }
 }
@@ -1091,6 +1114,13 @@ $dbPassword = Get-StoredSecret -Name 'database-password' -Prompt 'Senha atual do
 }
 $appJwtSecret = Get-StoredSecret -Name 'backend-jwt-secret' -Prompt 'Secret HMAC administrativo atual do backend' -GenerateWhenEmpty
 $adminPassword = Get-StoredSecret -Name 'backend-admin-password' -Prompt 'Senha atual do administrador do backend' -GenerateWhenEmpty
+$notificationApiKey = Get-StoredSecret -Name 'notification-api-key' -Prompt 'Chave técnica atual das notificações (Enter vazio para gerar)' -GenerateWhenEmpty
+$notificationSourceEmailPath = Join-Path $script:SecretsDirectory 'notification-source-email.txt'
+if ([string]::IsNullOrWhiteSpace($NotificationSourceEmail)) {
+    $NotificationSourceEmail = Get-StoredValue -Path $notificationSourceEmailPath -Prompt 'E-mail remetente verificado no Amazon SES'
+}
+Assert-NotificationSourceEmail -Email $NotificationSourceEmail
+Set-Content -Path $notificationSourceEmailPath -Value $NotificationSourceEmail -Encoding UTF8
 
 $privateKeyPath = Join-Path $script:SecretsDirectory 'jwt-private.pem'
 $publicKeyPath = Join-Path $script:SecretsDirectory 'jwt-public.pem'
@@ -1114,6 +1144,10 @@ Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key db_user -Value 'oficina_
 Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key db_password -Value $dbPassword -Sensitive $true
 Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key jwt_private_key -Value $jwtPrivateKey -Sensitive $true
 Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key jwt_public_key -Value $jwtPublicKey
+Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key notification_api_key -Value $notificationApiKey -Sensitive $true
+Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key notification_source_email -Value $NotificationSourceEmail
+$createSesIdentityValue = if ($CreateSesIdentity) { 'true' } else { 'false' }
+Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key notification_create_ses_identity -Value $createSesIdentityValue -Hcl $true
 
 if (-not $SkipGitHub) {
     foreach ($targetEnvironment in @('homolog', 'production')) {
@@ -1163,6 +1197,7 @@ if (-not $SkipGitHub) {
     Set-GitHubSecret -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name APP_JWT_SECRET -Value $appJwtSecret
     Set-GitHubSecret -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name APP_ADMIN_PASSWORD -Value $adminPassword
     Set-GitHubSecret -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name SERVERLESS_JWT_PUBLIC_KEY -Value $jwtPublicKey
+    Set-GitHubSecret -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name NOTIFICATION_API_KEY -Value $notificationApiKey
     Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name DEPLOY_ENABLED -Value 'false'
 }
 
@@ -1267,7 +1302,11 @@ if ($null -ne $apiBaseOutput) {
         Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name API_GATEWAY_BASE_URL -Value $apiBaseUrl
         Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name AUTH_BASE_URL -Value $apiBaseUrl
     }
-    Write-Host 'URL do API Gateway sincronizada automaticamente com o backend.'
+    $notificationEndpointOutput = Get-TerraformOutput -Outputs $authOutputs -Name notification_endpoint
+    if ($null -ne $notificationEndpointOutput -and -not $SkipGitHub) {
+        Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name NOTIFICATION_ENDPOINT -Value ([string]$notificationEndpointOutput.value)
+    }
+    Write-Host 'URLs do API Gateway sincronizadas automaticamente com o backend.'
 }
 
 if ($DisableObservability) {
@@ -1277,6 +1316,7 @@ if ($DisableObservability) {
     Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key notification_enabled -Value 'false' -Hcl $true
     Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key newrelic_instrumentation_enabled -Value 'false' -Hcl $true
     Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key newrelic_log_forwarding_enabled -Value 'false' -Hcl $true
+    Set-HcpWorkspaceVariable -Workspace $databaseWorkspace -Key rds_newrelic_telemetry_enabled -Value 'false' -Hcl $true
     if (-not $SkipGitHub) {
         Set-GitHubVariable -Repository $RepositoryNames.Kubernetes -EnvironmentName $Environment -Name SYNTHETIC_MONITOR_ENABLED -Value 'false'
         Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name NEW_RELIC_ENABLED -Value 'false'
@@ -1302,7 +1342,7 @@ if ($ConfigureNewRelic) {
     Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key apm_application_name -Value "oficina-backend-$Environment"
     Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key kubernetes_namespace -Value "oficina-$Environment"
     Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key api_gateway_name -Value "oficina-auth-$Environment-http-api"
-    Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key lambda_function_names -Value (ConvertTo-HclList -Values @("oficina-auth-$Environment-login", "oficina-auth-$Environment-authorizer")) -Hcl $true
+    Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key lambda_function_names -Value (ConvertTo-HclList -Values @("oficina-auth-$Environment-login", "oficina-auth-$Environment-authorizer", "oficina-auth-$Environment-notification-ingress", "oficina-auth-$Environment-notification-delivery")) -Hcl $true
     $syntheticMonitorEnabled = if ([string]::IsNullOrWhiteSpace($backendUrl)) { 'false' } else { 'true' }
     Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key synthetic_monitor_enabled -Value $syntheticMonitorEnabled -Hcl $true
     Set-HcpWorkspaceVariable -Workspace $newRelicWorkspace -Key notification_enabled -Value 'false' -Hcl $true
@@ -1315,6 +1355,11 @@ if ($ConfigureNewRelic) {
     Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key newrelic_layer_version -Value $newRelicLayerVersion -Hcl $true
     Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key newrelic_instrumentation_enabled -Value 'true' -Hcl $true
     Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key newrelic_log_forwarding_enabled -Value 'true' -Hcl $true
+
+    Set-HcpWorkspaceVariable -Workspace $databaseWorkspace -Key newrelic_account_id -Value $accountId -Hcl $true
+    Set-HcpWorkspaceVariable -Workspace $databaseWorkspace -Key newrelic_license_key -Value $licenseKey -Sensitive $true
+    Set-HcpWorkspaceVariable -Workspace $databaseWorkspace -Key newrelic_region -Value 'US'
+    Set-HcpWorkspaceVariable -Workspace $databaseWorkspace -Key rds_newrelic_telemetry_enabled -Value 'true' -Hcl $true
 
     if (-not $SkipGitHub) {
         Set-GitHubVariable -Repository $RepositoryNames.Kubernetes -EnvironmentName $Environment -Name NEW_RELIC_ACCOUNT_ID -Value $accountId

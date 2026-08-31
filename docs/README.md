@@ -7,6 +7,7 @@ O README principal apresenta apenas o caminho rápido. Os detalhes técnicos e o
 - [Visão geral da solução](architecture/overview.md)
 - [Responsabilidades dos repositórios](architecture/repository-boundaries.md)
 - [Autenticação serverless por CPF](architecture/authentication-flow.md)
+- [Sequência de abertura da Ordem de Serviço](architecture/service-order-opening-flow.md)
 - [Observabilidade com New Relic](architecture/observability-new-relic.md)
 - [Evolução do banco de dados](architecture/database-evolution.md)
 - [Migração da infraestrutura da Fase 2](architecture/infrastructure-migration.md)
@@ -27,6 +28,8 @@ O README principal apresenta apenas o caminho rápido. Os detalhes técnicos e o
 - [ADR 0001 — Quatro repositórios independentes](decisions/adr/0001-four-repositories.md)
 - [ADR 0002 — New Relic](decisions/adr/0002-new-relic.md)
 - [ADR 0003 — JWT assinado e validado entre serviços](decisions/adr/0003-jwt-signing.md)
+- [ADR 0004 — Notificações assíncronas serverless](decisions/adr/0004-serverless-notifications.md)
+- [ADR 0005 — Alta disponibilidade no Kubernetes](decisions/adr/0005-kubernetes-high-availability.md)
 
 ## Validação
 

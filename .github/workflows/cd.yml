@@ -94,31 +94,9 @@ jobs:
       image_ref: ${{ needs.build-publish.outputs.image_ref }}
     secrets: inherit
 
-  approve-production:
-    name: Aprovação manual (produção)
-    needs: build-publish
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      issues: write
-    steps:
-      - name: Wait for production approval
-        uses: trstringer/manual-approval@v1
-        with:
-          secret: ${{ github.token }}
-          approvers: tiagomiele
-          minimum-approvals: 1
-          issue-title: "Aprovar deploy em PRODUÇÃO — ${{ github.sha }}"
-          issue-body: |
-            Deploy de produção aguardando aprovação.
-            Imagem: `${{ needs.build-publish.outputs.image_ref }}`
-
-            Comente **approved** / **approve** / **lgtm** para liberar,
-            ou **denied** / **deny** para cancelar.
-
   deploy-production:
     name: Deploy PRODUÇÃO
-    needs: [build-publish, approve-production]
+    needs: build-publish
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     uses: ./.github/workflows/deploy.yml
     with:

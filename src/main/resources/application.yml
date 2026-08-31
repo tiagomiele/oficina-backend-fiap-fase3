@@ -95,6 +95,9 @@ oficina:
       email: ${ADMIN_EMAIL:admin@oficina.local}
       password: ${ADMIN_PASSWORD:admin123}
   notificacao:
-    # log (default) escreve no log; smtp envia e-mail real via spring.mail.*
+    # log (default), smtp ou serverless
     tipo: ${NOTIFICACAO_TIPO:log}
     remetente: ${NOTIFICACAO_REMETENTE:nao-responder@oficina.local}
+    serverless:
+      endpoint: ${NOTIFICATION_ENDPOINT:}
+      api-key: ${NOTIFICATION_API_KEY:}

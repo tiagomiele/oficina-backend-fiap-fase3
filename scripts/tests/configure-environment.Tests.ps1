@@ -15,7 +15,20 @@ if ($null -ne $unbracedInterpolation) {
     throw "Use `${variavel} antes de '?' em interpolação: $($unbracedInterpolation.Line.Trim())"
 }
 
-foreach ($name in @('Assert-TerraformPlatform', 'Assert-RdsPassword', 'ConvertFrom-SecureText', 'New-RandomSecret', 'Get-StoredSecret', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion', 'Invoke-Gh', 'Set-GitHubSecret')) {
+$sourceText = Get-Content $source -Raw
+foreach ($requiredProductionSetting in @(
+    'UseAwsAcademyDisposableProductionProfile',
+    "Set-HcpWorkspaceVariable -Workspace `$workspace -Key multi_az",
+    "Set-HcpWorkspaceVariable -Workspace `$workspace -Key deletion_protection",
+    "Set-HcpWorkspaceVariable -Workspace `$workspace -Key skip_final_snapshot",
+    "Set-HcpWorkspaceVariable -Workspace `$workspace -Key final_snapshot_identifier"
+)) {
+    if (-not $sourceText.Contains($requiredProductionSetting)) {
+        throw "Production database setting not found: $requiredProductionSetting"
+    }
+}
+
+foreach ($name in @('Assert-TerraformPlatform', 'Assert-RdsPassword', 'Assert-NotificationSourceEmail', 'ConvertFrom-SecureText', 'New-RandomSecret', 'Get-StoredSecret', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion', 'Invoke-Gh', 'Set-GitHubSecret')) {
     $functionAst = $ast.FindAll({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -46,6 +59,18 @@ foreach ($invalidPassword in @(
 }
 
 Assert-RdsPassword -Password (New-RandomSecret)
+Assert-NotificationSourceEmail -Email 'nao-responder@example.com'
+foreach ($invalidEmail in @('sem-arroba', 'nome@dominio', "nome com espaco@example.com", (('a' * 310) + '@example.com'))) {
+    try {
+        Assert-NotificationSourceEmail -Email $invalidEmail
+        throw 'Invalid notification source email must be rejected.'
+    }
+    catch {
+        if ($_.Exception.Message -eq 'Invalid notification source email must be rejected.') {
+            throw
+        }
+    }
+}
 
 $secretsDirectory = Join-Path ([IO.Path]::GetTempPath()) ("configure-environment-tests-" + [Guid]::NewGuid())
 $rdsValidator = {
