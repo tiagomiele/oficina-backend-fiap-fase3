@@ -91,7 +91,7 @@ Com os quatro repositórios clonados como diretórios irmãos, copie o bloco `[d
 .\scripts\configure-environment.ps1 -Environment production
 ```
 
-O script cria/configura o projeto e os oito workspaces HCP, renova AWS CLI, Variable Set e GitHub Environments, preserva secrets fora do Git e sincroniza outputs entre os states. Na primeira execução, informe o remetente do SES; a chave técnica é gerada e reutilizada automaticamente. Use `-CreateSesIdentity` somente no ambiente que será responsável por solicitar a verificação desse remetente. Produção recebe por padrão RDS Multi-AZ, proteção contra exclusão e snapshot final; `-UseAwsAcademyDisposableProductionProfile` é um override explícito, sem HA, somente para demonstração descartável. O script não executa apply ou deploy. Consulte o [guia geral](docs/validation/general-project.md).
+O script cria/configura o projeto e os oito workspaces HCP, renova AWS CLI, Variable Set e GitHub Environments, preserva secrets fora do Git e sincroniza outputs entre os states. Na primeira execução, informe o remetente configurado; a chave técnica é gerada e reutilizada automaticamente. No AWS Academy, omita `-EnableSesDelivery` e `-CreateSesIdentity`: a notificação permanece assíncrona e usa log técnico sem PII. Em uma conta com identidade SES verificada, use `-EnableSesDelivery`; acrescente `-CreateSesIdentity` somente se a role puder solicitar a verificação. Produção recebe por padrão RDS Multi-AZ, proteção contra exclusão e snapshot final; `-UseAwsAcademyDisposableProductionProfile` é um override explícito, sem HA, somente para demonstração descartável. O script não executa apply ou deploy. Consulte o [guia geral](docs/validation/general-project.md).
 
 ## Documentação
 

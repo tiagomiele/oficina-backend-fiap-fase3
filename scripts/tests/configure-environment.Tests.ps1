@@ -28,6 +28,17 @@ foreach ($requiredProductionSetting in @(
     }
 }
 
+foreach ($requiredNotificationSetting in @(
+    '[switch]$EnableSesDelivery',
+    'CreateSesIdentity exige EnableSesDelivery',
+    'Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key notification_delivery_mode',
+    "if (`$EnableSesDelivery) { 'ses' } else { 'log' }"
+)) {
+    if (-not $sourceText.Contains($requiredNotificationSetting)) {
+        throw "Notification delivery setting not found: $requiredNotificationSetting"
+    }
+}
+
 foreach ($name in @('Assert-TerraformPlatform', 'Assert-RdsPassword', 'Assert-NotificationSourceEmail', 'ConvertFrom-SecureText', 'New-RandomSecret', 'Get-StoredSecret', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion', 'Invoke-Gh', 'Set-GitHubSecret')) {
     $functionAst = $ast.FindAll({
         param($node)

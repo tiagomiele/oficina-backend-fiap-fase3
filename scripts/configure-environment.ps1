@@ -8,6 +8,7 @@ param(
     [string]$AwsCredentialsFile,
     [string]$SecretsRoot,
     [string]$NotificationSourceEmail = $env:NOTIFICATION_SOURCE_EMAIL,
+    [switch]$EnableSesDelivery,
     [switch]$CreateSesIdentity,
     [switch]$ConfigureNewRelic,
     [switch]$DisableObservability,
@@ -21,6 +22,9 @@ $ErrorActionPreference = 'Stop'
 $script:ConfigurationIssues = [Collections.Generic.List[string]]::new()
 if ($ConfigureNewRelic -and $DisableObservability) {
     throw 'Use somente um parâmetro: ConfigureNewRelic ou DisableObservability.'
+}
+if ($CreateSesIdentity -and -not $EnableSesDelivery) {
+    throw 'CreateSesIdentity exige EnableSesDelivery. No AWS Academy, omita ambos para usar o modo log.'
 }
 
 $RepositoryNames = @{
@@ -1145,6 +1149,8 @@ Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key db_password -Value $dbPa
 Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key jwt_private_key -Value $jwtPrivateKey -Sensitive $true
 Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key jwt_public_key -Value $jwtPublicKey
 Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key notification_api_key -Value $notificationApiKey -Sensitive $true
+$notificationDeliveryMode = if ($EnableSesDelivery) { 'ses' } else { 'log' }
+Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key notification_delivery_mode -Value $notificationDeliveryMode
 Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key notification_source_email -Value $NotificationSourceEmail
 $createSesIdentityValue = if ($CreateSesIdentity) { 'true' } else { 'false' }
 Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key notification_create_ses_identity -Value $createSesIdentityValue -Hcl $true
