@@ -434,7 +434,7 @@ terraform login app.terraform.io
 $env:TF_CLOUD_ORGANIZATION = '<organizacao-hcp>'
 $env:TF_WORKSPACE = 'oficina-kubernetes-homolog'
 
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform plan -input=false -no-color
 ```
 

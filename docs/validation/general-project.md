@@ -329,7 +329,7 @@ Não cadastre `lab_role_arn`, `private_subnet_ids` ou credenciais AWS diretament
 Set-Location C:\fiap-fase3\oficina-kubernetes-infra-fiap-fase3
 $env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
 $env:TF_WORKSPACE = 'oficina-kubernetes-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform validate -no-color
 terraform plan -input=false -no-color
 ```
@@ -426,7 +426,7 @@ Esses defaults econômicos são adequados apenas ao AWS Academy. Em produção r
 Set-Location C:\fiap-fase3\oficina-database-infra-fiap-fase3
 $env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
 $env:TF_WORKSPACE = 'oficina-database-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform fmt -check -recursive
 terraform validate -no-color
 terraform plan -input=false -no-color
@@ -972,7 +972,7 @@ Test-Path .\target\oficina-auth.jar
 ```powershell
 $env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
 $env:TF_WORKSPACE = 'oficina-auth-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform fmt -check -recursive
 terraform validate -no-color
 terraform plan -input=false -no-color
@@ -1305,7 +1305,7 @@ Não guarde prints de:
 | HCP `422` com `Sensitive cannot be updated` | a variável sensível já existe e o HCP aceita somente a atualização do valor | use a versão atual do script e reexecute o mesmo comando; não apague nem recrie a variável manualmente |
 | propriedade `vpc_id` ou outro output não encontrada | versão antiga do script tentou acessar um state ainda vazio ou parcial | atualize a branch, reexecute o script e aguarde o aviso de output ausente; não cadastre IDs manualmente |
 | `aws.exe` falha em `eks update-kubeconfig` durante a preparação | versão antiga do script tentou consultar o LoadBalancer antes de o cluster existir | atualize a branch e reexecute; o script deve ignorar essa consulta até existirem outputs do EKS |
-| `-reconfigure` inválido | opção incompatível com `cloud {}` | execute `terraform init -input=false` sem `-reconfigure` |
+| `-reconfigure` inválido | opção incompatível com `cloud {}` | execute `terraform init -input=false -lockfile=readonly` sem `-reconfigure` |
 | JAR da Lambda não encontrado | autenticação não empacotada | execute `.\mvnw.cmd -B -DskipTests package` na raiz do auth |
 | kubectl `Unauthorized` | credencial local antiga | reexecute o script central, valide STS e atualize kubeconfig |
 | `ImagePullBackOff` | pacote GHCR privado | torne o pacote público conforme a seção 12.1 e execute novamente o CD |
@@ -1379,7 +1379,7 @@ git switch main
 git pull --ff-only
 $env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
 $env:TF_WORKSPACE = 'oficina-kubernetes-production'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform fmt -check -recursive
 terraform validate -no-color
 terraform plan -input=false -no-color
@@ -1401,7 +1401,7 @@ git switch main
 git pull --ff-only
 $env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
 $env:TF_WORKSPACE = 'oficina-database-production'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform fmt -check -recursive
 terraform validate -no-color
 terraform plan -input=false -no-color
@@ -1444,7 +1444,7 @@ git pull --ff-only
 .\mvnw.cmd -B clean verify spotless:check
 $env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
 $env:TF_WORKSPACE = 'oficina-auth-production'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform fmt -check -recursive
 terraform validate -no-color
 terraform plan -input=false -no-color
@@ -1522,7 +1522,7 @@ Execute apenas o plan:
 Set-Location C:\fiap-fase3\oficina-database-infra-fiap-fase3
 $env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
 $env:TF_WORKSPACE = 'oficina-database-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform plan -input=false -no-color
 ```
 
@@ -1566,7 +1566,7 @@ Primeiro execute um plan sem apply:
 Set-Location C:\fiap-fase3\oficina-kubernetes-infra-fiap-fase3\observability\newrelic
 $env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
 $env:TF_WORKSPACE = 'oficina-newrelic-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform plan -input=false -no-color
 ```
 
@@ -1625,7 +1625,7 @@ Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
 Set-Location C:\fiap-fase3\oficina-auth-serverless-fiap-fase3
 $env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
 $env:TF_WORKSPACE = 'oficina-auth-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform plan -input=false -no-color
 ```
 
@@ -1761,7 +1761,7 @@ Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
 .\scripts\configure-environment.ps1 -Environment homolog -DisableObservability
 Set-Location C:\fiap-fase3\oficina-kubernetes-infra-fiap-fase3\observability\newrelic
 $env:TF_WORKSPACE = 'oficina-newrelic-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform plan -input=false -no-color
 ```
 
@@ -1800,7 +1800,7 @@ Não continue se o STS falhar ou se a conta retornada não for a conta atual do 
 Set-Location C:\fiap-fase3\oficina-auth-serverless-fiap-fase3
 $env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
 $env:TF_WORKSPACE = 'oficina-auth-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform plan -destroy -input=false -no-color
 terraform destroy
 ```
@@ -1812,7 +1812,7 @@ Revise o plan e digite `yes`. Confirme que Lambdas e API Gateway foram removidos
 ```powershell
 Set-Location C:\fiap-fase3\oficina-kubernetes-infra-fiap-fase3\observability\newrelic
 $env:TF_WORKSPACE = 'oficina-newrelic-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform plan -destroy -input=false -no-color
 terraform destroy
 ```
@@ -1837,7 +1837,7 @@ Aceite `not found` somente quando o recurso já estiver ausente. Não prossiga e
 ```powershell
 Set-Location C:\fiap-fase3\oficina-database-infra-fiap-fase3
 $env:TF_WORKSPACE = 'oficina-database-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform plan -destroy -input=false -no-color
 terraform destroy
 ```
@@ -1849,7 +1849,7 @@ Revise e digite `yes`. Aguarde até o RDS desaparecer do console AWS.
 ```powershell
 Set-Location C:\fiap-fase3\oficina-kubernetes-infra-fiap-fase3
 $env:TF_WORKSPACE = 'oficina-kubernetes-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform plan -destroy -input=false -no-color
 terraform destroy
 terraform state list
