@@ -459,7 +459,9 @@ Após `Apply complete`:
 ```powershell
 terraform output
 Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
-.\scripts\configure-environment.ps1 -Environment homolog
+.\scripts\configure-environment.ps1 `
+  -Environment homolog `
+  -RequireBackendDeployReady
 . C:\fiap-secrets\oficina-homolog\environment-context.ps1
 ```
 
@@ -471,7 +473,7 @@ if ([int]$dbPort -le 0) { throw 'dbPort ausente no contexto.' }
 if ([string]::IsNullOrWhiteSpace($jdbcUrl)) { throw 'jdbcUrl ausente no contexto.' }
 ```
 
-O script adiciona `sslmode=require` somente para a autenticação, mantém usuário e senha fora da URL e atualiza o GitHub Environment do backend. Não copie o endpoint manualmente. Como os outputs do EKS já foram sincronizados na etapa anterior, essa execução também habilita `DEPLOY_ENABLED=true`; o próximo run do CD poderá acessar o cluster com valores reais.
+O script adiciona `sslmode=require` somente para a autenticação, mantém usuário e senha fora da URL e atualiza o GitHub Environment do backend. Não copie o endpoint manualmente. `-RequireBackendDeployReady` interrompe a execução se os outputs do EKS ou do RDS estiverem ausentes e só conclui depois de reler `DEPLOY_ENABLED=true` no GitHub Environment; o próximo run do CD poderá acessar o cluster com valores reais.
 
 ---
 

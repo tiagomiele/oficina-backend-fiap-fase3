@@ -39,7 +39,22 @@ foreach ($requiredNotificationSetting in @(
     }
 }
 
-foreach ($name in @('Assert-TerraformPlatform', 'Assert-RdsPassword', 'Assert-NotificationSourceEmail', 'ConvertFrom-SecureText', 'New-RandomSecret', 'Get-StoredSecret', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion', 'Invoke-Gh', 'Set-GitHubSecret')) {
+foreach ($requiredDeployGateSetting in @(
+    '[switch]$RequireBackendDeployReady',
+    '$backendDeployReady = $kubernetesReady -and $databaseReady',
+    'Get-GitHubVariable -Repository $RepositoryNames.Backend',
+    'Gate do Backend confirmado: DEPLOY_ENABLED=',
+    'Deploy do Backend bloqueado:'
+)) {
+    if (-not $sourceText.Contains($requiredDeployGateSetting)) {
+        throw "Backend deploy gate setting not found: $requiredDeployGateSetting"
+    }
+}
+if ($sourceText.Contains("Set-GitHubVariable -Repository `$RepositoryNames.Backend -EnvironmentName `$Environment -Name DEPLOY_ENABLED -Value 'false'")) {
+    throw 'DEPLOY_ENABLED must not be reset before Terraform outputs are evaluated.'
+}
+
+foreach ($name in @('Assert-TerraformPlatform', 'Assert-RdsPassword', 'Assert-NotificationSourceEmail', 'ConvertFrom-SecureText', 'New-RandomSecret', 'Get-StoredSecret', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion', 'Invoke-Gh', 'Get-GitHubVariable', 'Set-GitHubSecret')) {
     $functionAst = $ast.FindAll({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
