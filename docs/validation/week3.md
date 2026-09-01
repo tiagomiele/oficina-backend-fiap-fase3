@@ -206,7 +206,7 @@ Variáveis como `$vpcId`, `$dbHost` e `$backendUrl` existem somente na janela at
 Set-Location C:\fiap-fase3\oficina-kubernetes-infra-fiap-fase3
 $env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
 $env:TF_WORKSPACE = 'oficina-kubernetes-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 $vpcId = terraform output -raw vpc_id
 $eksClusterName = terraform output -raw eks_cluster_name
 $eksSecurityGroupId = terraform output -raw eks_cluster_security_group_id
@@ -214,7 +214,7 @@ $privateSubnetsJson = terraform output -json private_subnet_ids
 
 Set-Location C:\fiap-fase3\oficina-database-infra-fiap-fase3
 $env:TF_WORKSPACE = 'oficina-database-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 $dbHost = terraform output -raw database_endpoint
 $dbPort = terraform output -raw database_port
 $dbName = terraform output -raw database_name
@@ -295,7 +295,7 @@ Antes do plan, renove as três **Environment variables** conforme a seção 3.2.
 Set-Location C:\fiap-fase3\oficina-kubernetes-infra-fiap-fase3
 $env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
 $env:TF_WORKSPACE = 'oficina-kubernetes-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform validate -no-color
 terraform plan -input=false -no-color
 ```
@@ -424,7 +424,7 @@ Guarde a senha do banco em um gerenciador de senhas. A mesma senha será configu
 Set-Location C:\fiap-fase3\oficina-database-infra-fiap-fase3
 $env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
 $env:TF_WORKSPACE = 'oficina-database-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform fmt -check -recursive
 terraform validate -no-color
 terraform plan -input=false -no-color
@@ -973,7 +973,7 @@ Test-Path .\target\oficina-auth.jar
 ```powershell
 $env:TF_CLOUD_ORGANIZATION = 'oficina-fiap-soat-fase-2'
 $env:TF_WORKSPACE = 'oficina-auth-homolog'
-terraform init -input=false
+terraform init -input=false -lockfile=readonly
 terraform fmt -check -recursive
 terraform validate -no-color
 terraform plan -input=false -no-color
@@ -1296,7 +1296,7 @@ Não guarde prints de:
 | `ExpiredToken` | sessão AWS Academy expirou | renove as três credenciais no local que executou a operação |
 | `InvalidClientTokenId` | credenciais misturadas ou incorretas | copie novamente as três credenciais da mesma sessão |
 | organização HCP não encontrada | placeholder ou nome incorreto | use `oficina-fiap-soat-fase-2` sem `<` e `>` |
-| `-reconfigure` inválido | opção incompatível com `cloud {}` | execute `terraform init -input=false` sem `-reconfigure` |
+| `-reconfigure` inválido | opção incompatível com `cloud {}` | execute `terraform init -input=false -lockfile=readonly` sem `-reconfigure` |
 | ARN da LabRole inválido | prefixo `arn:` ausente | use `arn:aws:iam::<AWS_ACCOUNT_ID>:role/LabRole` |
 | JAR da Lambda não encontrado | autenticação não empacotada | execute `./mvnw.cmd -B -DskipTests package` na raiz do auth |
 | kubectl `Unauthorized` | credencial local antiga | renove `~/.aws/credentials`, valide STS e atualize kubeconfig |
