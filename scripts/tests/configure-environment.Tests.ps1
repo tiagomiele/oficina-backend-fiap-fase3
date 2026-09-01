@@ -53,8 +53,16 @@ foreach ($requiredDeployGateSetting in @(
 if ($sourceText.Contains("Set-GitHubVariable -Repository `$RepositoryNames.Backend -EnvironmentName `$Environment -Name DEPLOY_ENABLED -Value 'false'")) {
     throw 'DEPLOY_ENABLED must not be reset before Terraform outputs are evaluated.'
 }
+foreach ($authoritativeOutputSetting in @(
+    'workspaces/$($Workspace.id)/current-state-version-outputs',
+    "`$NotificationSourceEmail = 'nao-responder@example.invalid'"
+)) {
+    if (-not $sourceText.Contains($authoritativeOutputSetting)) {
+        throw "Authoritative HCP output setting not found: $authoritativeOutputSetting"
+    }
+}
 
-foreach ($name in @('Assert-TerraformPlatform', 'Assert-RdsPassword', 'Assert-NotificationSourceEmail', 'ConvertFrom-SecureText', 'New-RandomSecret', 'Get-StoredSecret', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-TerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion', 'Invoke-Gh', 'Get-GitHubVariable', 'Set-GitHubSecret')) {
+foreach ($name in @('Assert-TerraformPlatform', 'Assert-RdsPassword', 'Assert-NotificationSourceEmail', 'ConvertFrom-SecureText', 'New-RandomSecret', 'Get-StoredSecret', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-HcpTerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion', 'Invoke-Gh', 'Get-GitHubVariable', 'Set-GitHubSecret')) {
     $functionAst = $ast.FindAll({
         param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -271,40 +279,10 @@ if ($ErrorActionPreference -ne 'Stop') {
 
 $script:ConfigurationIssues = [Collections.Generic.List[string]]::new()
 $TerraformOrganization = 'test-organization'
-$env:TF_CLOUD_ORGANIZATION = 'original-organization'
-$env:TF_WORKSPACE = 'original-workspace'
-$script:terraformInitExitCode = 1
-$script:terraformOutputExitCode = 1
-$script:terraformOutput = '{}'
-$script:terraformOutputError = 'Outputs unavailable.'
 $script:terraformPlatform = 'linux_amd64'
 function terraform {
-    param([Parameter(ValueFromRemainingArguments = $true)][object[]]$Arguments)
-
-    if ($Arguments -contains 'version') {
-        "{`"terraform_version`":`"1.10.0`",`"platform`":`"$script:terraformPlatform`"}"
-        $global:LASTEXITCODE = 0
-        return
-    }
-
-    if ($Arguments -contains 'init') {
-        if ($script:terraformInitExitCode -ne 0) {
-            Write-Error 'Provider checksum mismatch.'
-        }
-        else {
-            'Terraform initialized.'
-        }
-        $global:LASTEXITCODE = $script:terraformInitExitCode
-        return
-    }
-
-    if ($script:terraformOutputExitCode -ne 0) {
-        Write-Error $script:terraformOutputError
-    }
-    else {
-        $script:terraformOutput
-    }
-    $global:LASTEXITCODE = $script:terraformOutputExitCode
+    "{`"terraform_version`":`"1.10.0`",`"platform`":`"$script:terraformPlatform`"}"
+    $global:LASTEXITCODE = 0
 }
 
 $originalOperatingSystem = $env:OS
@@ -327,45 +305,60 @@ finally {
     $env:OS = $originalOperatingSystem
     $script:terraformPlatform = 'linux_amd64'
 }
+Remove-Item Function:\terraform
 
-if ($null -ne (Get-TerraformOutputs -RepositoryPath repository -WorkspaceName target-workspace)) {
-    throw 'Failed Terraform initialization must return null.'
+$testWorkspace = [pscustomobject]@{
+    id         = 'ws-1'
+    attributes = [pscustomobject]@{ name = 'target-workspace' }
 }
-if ($script:ConfigurationIssues.Count -ne 1) {
-    throw 'Failed Terraform initialization must register a blocking issue.'
-}
-if ($ErrorActionPreference -ne 'Stop') {
-    throw 'Terraform output lookup did not restore ErrorActionPreference.'
-}
-if ($env:TF_CLOUD_ORGANIZATION -ne 'original-organization' -or $env:TF_WORKSPACE -ne 'original-workspace') {
-    throw 'Terraform output lookup did not restore the original environment.'
+$script:stateVersionMissing = $false
+$script:stateOutputFailure = $false
+$script:stateOutputItems = @(
+    [pscustomobject]@{
+        attributes = [pscustomobject]@{
+            name      = 'jdbc_url'
+            sensitive = $false
+            value     = 'jdbc:postgresql://database.example.com:5432/oficina'
+        }
+    }
+)
+function Invoke-HcpApi {
+    param([string]$Method, [string]$Path, [object]$Body, [string]$Context)
+
+    if ($script:stateVersionMissing) {
+        $exception = [InvalidOperationException]::new('State version outputs not found')
+        $exception.Data['HcpStatusCode'] = 404
+        throw $exception
+    }
+    if ($script:stateOutputFailure) {
+        throw [InvalidOperationException]::new('Outputs unavailable')
+    }
+    @{ data = $script:stateOutputItems }
 }
 
-$script:ConfigurationIssues.Clear()
-$script:terraformInitExitCode = 0
-$script:terraformOutputExitCode = 1
-if ($null -ne (Get-TerraformOutputs -RepositoryPath repository -WorkspaceName target-workspace)) {
-    throw 'Failed Terraform output must return null.'
-}
-if ($script:ConfigurationIssues.Count -ne 1 -or $script:ConfigurationIssues[0] -notlike '*Outputs unavailable.*') {
-    throw 'Failed Terraform output must preserve the command detail.'
+$terraformOutputs = Get-HcpTerraformOutputs -Workspace $testWorkspace
+if ($terraformOutputs.jdbc_url.value -ne 'jdbc:postgresql://database.example.com:5432/oficina') {
+    throw 'HCP state output was not parsed.'
 }
 
-$script:ConfigurationIssues.Clear()
-$script:terraformOutputError = 'Error: could not read state version outputs: resource not found'
-if ($null -ne (Get-TerraformOutputs -RepositoryPath repository -WorkspaceName empty-workspace)) {
+$script:stateVersionMissing = $true
+if ($null -ne (Get-HcpTerraformOutputs -Workspace $testWorkspace)) {
     throw 'Workspace without state must return null.'
 }
 if ($script:ConfigurationIssues.Count -ne 0) {
     throw 'Workspace without state must not register a blocking issue.'
 }
 
-$script:terraformOutputExitCode = 0
-$script:terraformOutput = '{"api_base_url":{"value":"https://example.com"}}'
-$terraformOutputs = Get-TerraformOutputs -RepositoryPath repository -WorkspaceName target-workspace
-if ($terraformOutputs.api_base_url.value -ne 'https://example.com') {
-    throw 'Valid Terraform outputs were not parsed.'
+$script:stateVersionMissing = $false
+$script:stateOutputFailure = $true
+if ($null -ne (Get-HcpTerraformOutputs -Workspace $testWorkspace)) {
+    throw 'Failed HCP output lookup must return null.'
 }
+if ($script:ConfigurationIssues.Count -ne 1 -or $script:ConfigurationIssues[0] -notlike '*outputs do workspace target-workspace*') {
+    throw 'Failed HCP output lookup must register a blocking issue.'
+}
+$script:ConfigurationIssues.Clear()
+Remove-Item Function:\Invoke-HcpApi
 
 $script:awsExitCode = 1
 $script:kubectlExitCode = 1

@@ -177,7 +177,7 @@ Secrets estáveis são armazenados fora dos repositórios em `C:\fiap-secrets\of
 
 No primeiro prompt `Senha atual do RDS`, pressione Enter para o script gerar uma senha compatível com a AWS. Se a senha informada for rejeitada, o script explica o motivo e repete o prompt (até três tentativas) sem gravar o valor recusado: informe outra senha válida ou pressione Enter para gerar uma. Só é necessário remover `C:\fiap-secrets\oficina-<ambiente>\database-password.clixml` quando o arquivo já existe com uma senha incompatível; não edite a variável sensível diretamente no HCP Terraform.
 
-Na primeira execução de um ambiente, informe os valores atuais já usados pela infraestrutura. Pressione Enter para gerar um valor novo somente quando o ambiente ainda não tiver sido criado.
+Na primeira execução de um ambiente, informe os valores atuais já usados pela infraestrutura. Pressione Enter para gerar um valor novo somente quando o ambiente ainda não tiver sido criado. No modo padrão `log` do AWS Academy, o script não solicita nem persiste e-mail remetente. Esse dado só é solicitado ao usar `-EnableSesDelivery` em uma conta com identidade SES verificada.
 
 ### 3.2 Renovar a sessão do AWS Academy uma única vez
 
@@ -210,7 +210,7 @@ $CredentialsFile = "$HOME\Downloads\credentials"
   -AwsCredentialsFile $CredentialsFile
 ```
 
-Você copia ou salva o bloco AWS uma única vez por sessão. O script valida `aws sts get-caller-identity`, salva os outputs não sensíveis em `environment-context.ps1` e atualiza automaticamente:
+Você copia ou salva o bloco AWS uma única vez por sessão. O script valida `aws sts get-caller-identity`, consulta diretamente pela API do HCP Terraform os outputs do state atual, salva os valores não sensíveis em `environment-context.ps1` e atualiza automaticamente:
 
 - o perfil local do AWS CLI;
 - o projeto HCP `soat-fase3`, quando ainda não existir;
@@ -224,7 +224,7 @@ Você copia ou salva o bloco AWS uma única vez por sessão. O script valida `aw
 
 Variáveis AWS diretas nos workspaces são removidas para não sobrescrever o Variable Set compartilhado. O ARN da `LabRole` é calculado pelos módulos com `aws_caller_identity`; ele não é mais cadastrado manualmente.
 
-Considere a preparação aprovada somente quando o comando terminar com código zero e exibir `Configuração automática concluída para <ambiente>`. Avisos de que Kubernetes, RDS ou LoadBalancer ainda não possuem outputs são esperados antes da criação desses recursos. Falha de provider, inicialização ou leitura do state termina com `Configuração incompleta`; nesse caso, não execute plan/apply, corrija a pendência exibida e repita o mesmo script.
+Considere a preparação aprovada somente quando o comando terminar com código zero e exibir `Configuração automática concluída para <ambiente>`. Avisos de que Kubernetes, RDS ou LoadBalancer ainda não possuem outputs são esperados antes da criação desses recursos. Falha de acesso ou leitura do state termina com `Configuração incompleta`; nesse caso, não execute plan/apply, corrija a pendência exibida e repita o mesmo script.
 
 ### 3.3 Sincronização idempotente de outputs
 
@@ -241,9 +241,9 @@ Reexecute o mesmo comando, sem copiar IDs, após cada marco:
 | deploy do backend | URL do LoadBalancer para autenticação, health check e backend |
 | apply da autenticação | URL do API Gateway para o backend |
 
-Se um output ainda não existir, o script emite aviso e preserva o restante da configuração. Ele não inventa IDs, não usa valores de uma sessão anterior e pode ser reexecutado com segurança.
+Se um output ainda não existir, o script emite aviso e preserva o restante da configuração. Ele não inventa IDs nem usa valores de uma sessão anterior. A leitura é feita pelo identificador do workspace e da versão atual do state na API do HCP, sem depender do checkout, cache de providers ou seleção local do Terraform CLI.
 
-O GitHub Environment do backend permanece com `DEPLOY_ENABLED=false` enquanto os outputs de EKS e RDS não estiverem disponíveis. Nesse estado, merges continuam validando e publicando a imagem, mas o job de deploy termina com aviso, sem falhar e sem tentar acessar o cluster. Quando ambos os states estiverem prontos, o mesmo script grava os valores reais e altera `DEPLOY_ENABLED=true` automaticamente.
+O GitHub Environment do backend permanece com `DEPLOY_ENABLED=false` enquanto os outputs de EKS e RDS não estiverem disponíveis. Nesse estado, merges continuam validando e publicando a imagem, mas o job de deploy falha no gate inicial sem tentar acessar o cluster. Quando ambos os states estiverem prontos, o mesmo script grava os valores reais, relê a variável no GitHub e altera `DEPLOY_ENABLED=true` automaticamente.
 
 ### 3.4 New Relic
 

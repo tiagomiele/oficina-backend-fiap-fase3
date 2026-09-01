@@ -845,62 +845,43 @@ function Set-GitHubSecret {
     Invoke-Gh @('secret', 'set', $Name, '--body', $Value, '--repo', "$GitHubOwner/$Repository", '--env', $EnvironmentName)
 }
 
-function Get-TerraformOutputs {
-    param(
-        [Parameter(Mandatory)][string]$RepositoryPath,
-        [Parameter(Mandatory)][string]$WorkspaceName
-    )
+function Get-HcpTerraformOutputs {
+    param([Parameter(Mandatory)][object]$Workspace)
 
-    $previousOrganization = $env:TF_CLOUD_ORGANIZATION
-    $previousWorkspace = $env:TF_WORKSPACE
-    $previousErrorActionPreference = $ErrorActionPreference
+    $workspaceName = [string]$Workspace.attributes.name
+    if ([string]::IsNullOrWhiteSpace($workspaceName)) {
+        $workspaceName = [string]$Workspace.id
+    }
+
     try {
-        $env:TF_CLOUD_ORGANIZATION = $TerraformOrganization
-        $env:TF_WORKSPACE = $WorkspaceName
-        $ErrorActionPreference = 'Continue'
-
-        $initOutput = @(& terraform "-chdir=$RepositoryPath" init -input=false -lockfile=readonly 2>&1)
-        $initExitCode = $LASTEXITCODE
-        if ($initExitCode -ne 0) {
-            $detail = ($initOutput | Select-Object -Last 3) -join ' '
-            $message = "Não foi possível inicializar $WorkspaceName. Detalhe: $detail"
-            $script:ConfigurationIssues.Add($message)
-            Write-Warning "$message Corrija o repositório antes do plan/apply."
-            return $null
-        }
-        $initOutput | Out-Host
-
-        $output = @(& terraform "-chdir=$RepositoryPath" output -json 2>&1)
-        $outputExitCode = $LASTEXITCODE
-        if ($outputExitCode -ne 0) {
-            $outputText = $output -join ' '
-            if ($outputText -match 'could not read state version outputs:\s*resource not found') {
-                Write-Warning "Workspace $WorkspaceName ainda não possui state. Reexecute este mesmo script após o primeiro apply."
-                return $null
-            }
-
-            $detail = ($output | Select-Object -Last 8) -join ' '
-            $message = "Não foi possível ler os outputs do workspace $WorkspaceName. Detalhe: $detail"
-            $script:ConfigurationIssues.Add($message)
-            Write-Warning "$message Não execute plan/apply antes de corrigir essa leitura."
+        $outputItems = @((Invoke-HcpApi -Method GET -Path "workspaces/$($Workspace.id)/current-state-version-outputs" -Context "consultar outputs atuais de $workspaceName").data)
+    }
+    catch {
+        if ($_.Exception.Data['HcpStatusCode'] -eq 404) {
+            Write-Warning "Workspace $workspaceName ainda não possui outputs no state atual. Reexecute este mesmo script após o primeiro apply."
             return $null
         }
 
-        try {
-            ($output -join [Environment]::NewLine) | ConvertFrom-Json
+        $message = "Não foi possível ler os outputs do workspace $workspaceName."
+        $script:ConfigurationIssues.Add($message)
+        Write-Warning "$message Não execute plan/apply antes de corrigir essa leitura."
+        return $null
+    }
+
+    $outputs = [ordered]@{}
+    foreach ($outputItem in $outputItems) {
+        $name = [string]$outputItem.attributes.name
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            continue
         }
-        catch {
-            $message = "Workspace $WorkspaceName retornou outputs inválidos."
-            $script:ConfigurationIssues.Add($message)
-            Write-Warning "$message Não execute plan/apply antes de corrigir essa leitura."
-            return $null
+
+        $outputs[$name] = [pscustomobject]@{
+            sensitive = [bool]$outputItem.attributes.sensitive
+            value     = $outputItem.attributes.value
         }
     }
-    finally {
-        $ErrorActionPreference = $previousErrorActionPreference
-        $env:TF_CLOUD_ORGANIZATION = $previousOrganization
-        $env:TF_WORKSPACE = $previousWorkspace
-    }
+
+    [pscustomobject]$outputs
 }
 
 function ConvertTo-HclList {
@@ -1139,11 +1120,16 @@ $appJwtSecret = Get-StoredSecret -Name 'backend-jwt-secret' -Prompt 'Secret HMAC
 $adminPassword = Get-StoredSecret -Name 'backend-admin-password' -Prompt 'Senha atual do administrador do backend' -GenerateWhenEmpty
 $notificationApiKey = Get-StoredSecret -Name 'notification-api-key' -Prompt 'Chave técnica atual das notificações (Enter vazio para gerar)' -GenerateWhenEmpty
 $notificationSourceEmailPath = Join-Path $script:SecretsDirectory 'notification-source-email.txt'
-if ([string]::IsNullOrWhiteSpace($NotificationSourceEmail)) {
-    $NotificationSourceEmail = Get-StoredValue -Path $notificationSourceEmailPath -Prompt 'E-mail remetente verificado no Amazon SES'
+if ($EnableSesDelivery) {
+    if ([string]::IsNullOrWhiteSpace($NotificationSourceEmail)) {
+        $NotificationSourceEmail = Get-StoredValue -Path $notificationSourceEmailPath -Prompt 'E-mail remetente verificado no Amazon SES'
+    }
+    Assert-NotificationSourceEmail -Email $NotificationSourceEmail
+    Set-Content -Path $notificationSourceEmailPath -Value $NotificationSourceEmail -Encoding UTF8
 }
-Assert-NotificationSourceEmail -Email $NotificationSourceEmail
-Set-Content -Path $notificationSourceEmailPath -Value $NotificationSourceEmail -Encoding UTF8
+else {
+    $NotificationSourceEmail = 'nao-responder@example.invalid'
+}
 
 $privateKeyPath = Join-Path $script:SecretsDirectory 'jwt-private.pem'
 $publicKeyPath = Join-Path $script:SecretsDirectory 'jwt-public.pem'
@@ -1227,7 +1213,7 @@ if (-not $SkipGitHub) {
 
 $kubernetesReady = $false
 $databaseReady = $false
-$kubernetesOutputs = Get-TerraformOutputs -RepositoryPath $repositoryPaths.Kubernetes -WorkspaceName $WorkspaceNames.Kubernetes[$Environment]
+$kubernetesOutputs = Get-HcpTerraformOutputs -Workspace $hcpWorkspaces[$WorkspaceNames.Kubernetes[$Environment]]
 $vpcOutput = Get-TerraformOutput -Outputs $kubernetesOutputs -Name vpc_id
 $privateSubnetsOutput = Get-TerraformOutput -Outputs $kubernetesOutputs -Name private_subnet_ids
 $eksSecurityGroupOutput = Get-TerraformOutput -Outputs $kubernetesOutputs -Name eks_cluster_security_group_id
@@ -1252,7 +1238,7 @@ else {
     Write-Warning 'Kubernetes ainda não possui todos os outputs. Reexecute este mesmo script após o apply do cluster.'
 }
 
-$databaseOutputs = Get-TerraformOutputs -RepositoryPath $repositoryPaths.Database -WorkspaceName $WorkspaceNames.Database[$Environment]
+$databaseOutputs = Get-HcpTerraformOutputs -Workspace $hcpWorkspaces[$WorkspaceNames.Database[$Environment]]
 $jdbcOutput = Get-TerraformOutput -Outputs $databaseOutputs -Name jdbc_url
 if ($null -ne $jdbcOutput) {
     $jdbcUrl = [string]$jdbcOutput.value
@@ -1329,7 +1315,7 @@ else {
     Write-Warning 'LoadBalancer do backend ainda não está disponível. Reexecute este mesmo script após o deploy do backend.'
 }
 
-$authOutputs = Get-TerraformOutputs -RepositoryPath $repositoryPaths.Auth -WorkspaceName $WorkspaceNames.Auth[$Environment]
+$authOutputs = Get-HcpTerraformOutputs -Workspace $hcpWorkspaces[$WorkspaceNames.Auth[$Environment]]
 $apiBaseOutput = Get-TerraformOutput -Outputs $authOutputs -Name api_base_url
 if ($null -ne $apiBaseOutput) {
     $apiBaseUrl = [string]$apiBaseOutput.value
