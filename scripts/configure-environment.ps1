@@ -13,6 +13,7 @@ param(
     [switch]$ConfigureNewRelic,
     [switch]$DisableObservability,
     [switch]$UseAwsAcademyDisposableProductionProfile,
+    [switch]$RequireBackendDeployReady,
     [switch]$SkipGitHub,
     [switch]$ValidateOnly
 )
@@ -25,6 +26,9 @@ if ($ConfigureNewRelic -and $DisableObservability) {
 }
 if ($CreateSesIdentity -and -not $EnableSesDelivery) {
     throw 'CreateSesIdentity exige EnableSesDelivery. No AWS Academy, omita ambos para usar o modo log.'
+}
+if ($RequireBackendDeployReady -and $SkipGitHub) {
+    throw 'RequireBackendDeployReady não pode ser usado com SkipGitHub.'
 }
 
 $RepositoryNames = @{
@@ -813,6 +817,21 @@ function Set-GitHubVariable {
     Invoke-Gh @('variable', 'set', $Name, '--body', $Value, '--repo', "$GitHubOwner/$Repository", '--env', $EnvironmentName)
 }
 
+function Get-GitHubVariable {
+    param(
+        [Parameter(Mandatory)][string]$Repository,
+        [Parameter(Mandatory)][string]$EnvironmentName,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    $output = @(& gh variable get $Name --repo "$GitHubOwner/$Repository" --env $EnvironmentName 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Falha ao confirmar a variável $Name no GitHub Environment $EnvironmentName."
+    }
+
+    ($output -join [Environment]::NewLine).Trim()
+}
+
 function Set-GitHubSecret {
     param(
         [Parameter(Mandatory)][string]$Repository,
@@ -1204,7 +1223,6 @@ if (-not $SkipGitHub) {
     Set-GitHubSecret -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name APP_ADMIN_PASSWORD -Value $adminPassword
     Set-GitHubSecret -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name SERVERLESS_JWT_PUBLIC_KEY -Value $jwtPublicKey
     Set-GitHubSecret -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name NOTIFICATION_API_KEY -Value $notificationApiKey
-    Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name DEPLOY_ENABLED -Value 'false'
 }
 
 $kubernetesReady = $false
@@ -1264,9 +1282,25 @@ else {
     Write-Warning 'RDS ainda não possui output. Reexecute este mesmo script após o apply do banco.'
 }
 
-if (-not $SkipGitHub -and $kubernetesReady -and $databaseReady) {
-    Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name DEPLOY_ENABLED -Value 'true'
+$backendDeployReady = $kubernetesReady -and $databaseReady
+if (-not $SkipGitHub) {
+    $deployEnabledValue = if ($backendDeployReady) { 'true' } else { 'false' }
+    Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name DEPLOY_ENABLED -Value $deployEnabledValue
+    $persistedDeployEnabled = Get-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $Environment -Name DEPLOY_ENABLED
+    if ($persistedDeployEnabled -ne $deployEnabledValue) {
+        throw "GitHub Environment não confirmou DEPLOY_ENABLED=$deployEnabledValue; valor lido: $persistedDeployEnabled"
+    }
+
+    Write-Host "Gate do Backend confirmado: DEPLOY_ENABLED=$persistedDeployEnabled."
+}
+if ($backendDeployReady) {
     Write-Host 'Deploy do backend habilitado: outputs de EKS e RDS estão disponíveis.'
+}
+elseif ($RequireBackendDeployReady) {
+    $missingBackendDependencies = @()
+    if (-not $kubernetesReady) { $missingBackendDependencies += 'outputs do Kubernetes' }
+    if (-not $databaseReady) { $missingBackendDependencies += 'output JDBC do RDS' }
+    $script:ConfigurationIssues.Add("Deploy do Backend bloqueado: faltam $($missingBackendDependencies -join ' e ').")
 }
 
 $backendUrl = if ($kubernetesReady) {
