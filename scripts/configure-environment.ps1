@@ -1186,18 +1186,6 @@ if (-not $SkipGitHub) {
         Set-GitHubVariable -Repository $RepositoryNames.Database -EnvironmentName $targetEnvironment -Name ENABLE_TERRAFORM_APPLY -Value 'true'
         Set-GitHubVariable -Repository $RepositoryNames.Auth -EnvironmentName $targetEnvironment -Name TF_APPLY_ENABLED -Value 'true'
 
-        $planEnvironment = "$targetEnvironment-plan"
-        foreach ($component in @('Kubernetes', 'Database', 'Auth')) {
-            $repository = $RepositoryNames[$component]
-            Initialize-GitHubEnvironment -Repository $repository -Name $planEnvironment
-            Set-GitHubSecret -Repository $repository -EnvironmentName $planEnvironment -Name TF_API_TOKEN -Value $terraformToken
-            Set-GitHubVariable -Repository $repository -EnvironmentName $planEnvironment -Name TF_CLOUD_ORGANIZATION -Value $TerraformOrganization
-            Set-GitHubVariable -Repository $repository -EnvironmentName $planEnvironment -Name TF_WORKSPACE_HOMOLOG -Value $WorkspaceNames[$component].homolog
-            Set-GitHubVariable -Repository $repository -EnvironmentName $planEnvironment -Name TF_WORKSPACE_PRODUCTION -Value $WorkspaceNames[$component].production
-        }
-        Set-GitHubVariable -Repository $RepositoryNames.Kubernetes -EnvironmentName $planEnvironment -Name TF_WORKSPACE_OBSERVABILITY_HOMOLOG -Value $WorkspaceNames.NewRelic.homolog
-        Set-GitHubVariable -Repository $RepositoryNames.Kubernetes -EnvironmentName $planEnvironment -Name TF_WORKSPACE_OBSERVABILITY_PRODUCTION -Value $WorkspaceNames.NewRelic.production
-
         Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $targetEnvironment -Name EKS_CLUSTER_NAME -Value "oficina-$targetEnvironment"
         Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $targetEnvironment -Name APP_DB_USER -Value 'oficina_admin'
         Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $targetEnvironment -Name SERVERLESS_JWT_ISSUER -Value 'oficina-auth-serverless'

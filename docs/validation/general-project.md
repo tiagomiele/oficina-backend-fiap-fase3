@@ -218,7 +218,6 @@ Você copia ou salva o bloco AWS uma única vez por sessão. O script valida `aw
 - execução remota, apply manual, Auto apply desativado e Working Directory correto dos workspaces;
 - o Variable Set HCP `aws-academy-credentials`, associado aos seis workspaces AWS de homologação e produção;
 - os secrets dos GitHub Environments `homolog` e `production` dos quatro repositórios;
-- os environments `homolog-plan` e `production-plan` dos três repositórios Terraform;
 - o token e as variáveis fixas dos GitHub Environments;
 - secrets estáveis do ambiente selecionado;
 - variáveis dinâmicas que já possuam outputs disponíveis.
@@ -1495,7 +1494,7 @@ O monitor sintético permanece desativado enquanto a URL pública não existir. 
 
 ## 26. Configurar os GitHub Environments para deploy controlado
 
-O script central cria ou atualiza os environments `homolog` e `production` nos quatro repositórios e também `homolog-plan` e `production-plan` nos repositórios Kubernetes, Database e Auth. Ele inclui credenciais AWS nos ambientes de deploy e configura token HCP e nomes dos workspaces nos ambientes de deploy e plan.
+O script central cria ou atualiza os environments `homolog` e `production` nos quatro repositórios. Ele inclui credenciais AWS nos ambientes de deploy e configura token HCP e nomes dos workspaces nos repositórios Terraform. Os workflows de plan usam `homolog` somente como contexto de configuração e selecionam o workspace de homologação ou produção conforme a branch base.
 
 Não copie secrets ou IDs pelo formulário do GitHub. Reexecute:
 
@@ -1507,7 +1506,7 @@ Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
 Permanece uma configuração humana única, pois ela é uma regra de governança e não um valor de aplicação:
 
 1. habilite **Required reviewers** somente no environment `production`;
-2. mantenha `homolog`, `homolog-plan` e `production-plan` sem reviewers obrigatórios;
+2. mantenha `homolog` sem reviewers obrigatórios;
 3. limite produção à branch `main` e homologação à branch `homolog`.
 
 `TF_APPLY_ENABLED=true` e `ENABLE_TERRAFORM_APPLY=true` são sincronizados pelo script. Pull Requests executam plan sem apply; merges em `homolog` aplicam automaticamente; merges em `main` aguardam uma única aprovação em `production`. Destroy permanece manual fora do GitHub Actions.
