@@ -1162,6 +1162,19 @@ Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key notification_create_ses_
 
 if (-not $SkipGitHub) {
     foreach ($targetEnvironment in @('homolog', 'production')) {
+        $planEnvironment = "$targetEnvironment-plan"
+        foreach ($component in @('Kubernetes', 'Database', 'Auth')) {
+            $repository = $RepositoryNames[$component]
+            Initialize-GitHubEnvironment -Repository $repository -Name $planEnvironment
+            Set-GitHubSecret -Repository $repository -EnvironmentName $planEnvironment -Name TF_API_TOKEN -Value $terraformToken
+            Set-GitHubVariable -Repository $repository -EnvironmentName $planEnvironment -Name TF_CLOUD_ORGANIZATION -Value $TerraformOrganization
+            Set-GitHubVariable -Repository $repository -EnvironmentName $planEnvironment -Name TF_WORKSPACE_HOMOLOG -Value $WorkspaceNames[$component].homolog
+            Set-GitHubVariable -Repository $repository -EnvironmentName $planEnvironment -Name TF_WORKSPACE_PRODUCTION -Value $WorkspaceNames[$component].production
+        }
+
+        Set-GitHubVariable -Repository $RepositoryNames.Kubernetes -EnvironmentName $planEnvironment -Name TF_WORKSPACE_OBSERVABILITY_HOMOLOG -Value $WorkspaceNames.NewRelic.homolog
+        Set-GitHubVariable -Repository $RepositoryNames.Kubernetes -EnvironmentName $planEnvironment -Name TF_WORKSPACE_OBSERVABILITY_PRODUCTION -Value $WorkspaceNames.NewRelic.production
+
         foreach ($repository in $RepositoryNames.Values) {
             Initialize-GitHubEnvironment -Repository $repository -Name $targetEnvironment
             Set-GitHubSecret -Repository $repository -EnvironmentName $targetEnvironment -Name AWS_ACCESS_KEY_ID -Value $credentials.AWS_ACCESS_KEY_ID
@@ -1185,18 +1198,6 @@ if (-not $SkipGitHub) {
         Set-GitHubVariable -Repository $RepositoryNames.Kubernetes -EnvironmentName $targetEnvironment -Name SYNTHETIC_MONITOR_ENABLED -Value 'false'
         Set-GitHubVariable -Repository $RepositoryNames.Database -EnvironmentName $targetEnvironment -Name ENABLE_TERRAFORM_APPLY -Value 'true'
         Set-GitHubVariable -Repository $RepositoryNames.Auth -EnvironmentName $targetEnvironment -Name TF_APPLY_ENABLED -Value 'true'
-
-        $authApplyEnvironment = "$targetEnvironment-apply"
-        Initialize-GitHubEnvironment -Repository $RepositoryNames.Auth -Name $authApplyEnvironment
-        Set-GitHubSecret -Repository $RepositoryNames.Auth -EnvironmentName $authApplyEnvironment -Name AWS_ACCESS_KEY_ID -Value $credentials.AWS_ACCESS_KEY_ID
-        Set-GitHubSecret -Repository $RepositoryNames.Auth -EnvironmentName $authApplyEnvironment -Name AWS_SECRET_ACCESS_KEY -Value $credentials.AWS_SECRET_ACCESS_KEY
-        Set-GitHubSecret -Repository $RepositoryNames.Auth -EnvironmentName $authApplyEnvironment -Name AWS_SESSION_TOKEN -Value $credentials.AWS_SESSION_TOKEN
-        Set-GitHubSecret -Repository $RepositoryNames.Auth -EnvironmentName $authApplyEnvironment -Name TF_API_TOKEN -Value $terraformToken
-        Set-GitHubVariable -Repository $RepositoryNames.Auth -EnvironmentName $authApplyEnvironment -Name AWS_REGION -Value 'us-west-2'
-        Set-GitHubVariable -Repository $RepositoryNames.Auth -EnvironmentName $authApplyEnvironment -Name TF_CLOUD_ORGANIZATION -Value $TerraformOrganization
-        Set-GitHubVariable -Repository $RepositoryNames.Auth -EnvironmentName $authApplyEnvironment -Name TF_WORKSPACE_HOMOLOG -Value $WorkspaceNames.Auth.homolog
-        Set-GitHubVariable -Repository $RepositoryNames.Auth -EnvironmentName $authApplyEnvironment -Name TF_WORKSPACE_PRODUCTION -Value $WorkspaceNames.Auth.production
-        Set-GitHubVariable -Repository $RepositoryNames.Auth -EnvironmentName $authApplyEnvironment -Name TF_APPLY_ENABLED -Value 'true'
 
         Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $targetEnvironment -Name EKS_CLUSTER_NAME -Value "oficina-$targetEnvironment"
         Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $targetEnvironment -Name APP_DB_USER -Value 'oficina_admin'

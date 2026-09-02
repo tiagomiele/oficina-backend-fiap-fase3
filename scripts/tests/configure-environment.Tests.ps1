@@ -62,6 +62,24 @@ foreach ($authoritativeOutputSetting in @(
     }
 }
 
+foreach ($planEnvironmentSetting in @(
+    '$planEnvironment = "$targetEnvironment-plan"',
+    'Set-GitHubSecret -Repository $repository -EnvironmentName $planEnvironment -Name TF_API_TOKEN',
+    'Set-GitHubVariable -Repository $repository -EnvironmentName $planEnvironment -Name TF_WORKSPACE_PRODUCTION'
+)) {
+    if (-not $sourceText.Contains($planEnvironmentSetting)) {
+        throw "Plan GitHub Environment setting not found: $planEnvironmentSetting"
+    }
+}
+
+foreach ($legacyEnvironmentSetting in @(
+    '$authApplyEnvironment = "$targetEnvironment-apply"'
+)) {
+    if ($sourceText.Contains($legacyEnvironmentSetting)) {
+        throw "Legacy GitHub Environment must not be created: $legacyEnvironmentSetting"
+    }
+}
+
 foreach ($name in @('Assert-TerraformPlatform', 'Assert-RdsPassword', 'Assert-NotificationSourceEmail', 'ConvertFrom-SecureText', 'New-RandomSecret', 'Get-StoredSecret', 'Get-HcpApiStatusCode', 'Get-HcpApiErrorDetail', 'Invoke-HcpApi', 'Initialize-HcpWorkspace', 'Set-HcpWorkspaceVariable', 'Set-HcpVariableSetVariables', 'Set-AwsVariableSet', 'Set-LocalAwsCredentials', 'Get-HcpTerraformOutputs', 'ConvertTo-HclList', 'Get-TerraformOutput', 'Get-KubernetesBackendUrl', 'Get-NewRelicLayerVersion', 'Invoke-Gh', 'Get-GitHubVariable', 'Set-GitHubSecret')) {
     $functionAst = $ast.FindAll({
         param($node)
