@@ -62,8 +62,17 @@ foreach ($authoritativeOutputSetting in @(
     }
 }
 
-foreach ($legacyEnvironmentSetting in @(
+foreach ($planEnvironmentSetting in @(
     '$planEnvironment = "$targetEnvironment-plan"',
+    'Set-GitHubSecret -Repository $repository -EnvironmentName $planEnvironment -Name TF_API_TOKEN',
+    'Set-GitHubVariable -Repository $repository -EnvironmentName $planEnvironment -Name TF_WORKSPACE_PRODUCTION'
+)) {
+    if (-not $sourceText.Contains($planEnvironmentSetting)) {
+        throw "Plan GitHub Environment setting not found: $planEnvironmentSetting"
+    }
+}
+
+foreach ($legacyEnvironmentSetting in @(
     '$authApplyEnvironment = "$targetEnvironment-apply"'
 )) {
     if ($sourceText.Contains($legacyEnvironmentSetting)) {

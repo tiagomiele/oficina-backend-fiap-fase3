@@ -1162,6 +1162,19 @@ Set-HcpWorkspaceVariable -Workspace $authWorkspace -Key notification_create_ses_
 
 if (-not $SkipGitHub) {
     foreach ($targetEnvironment in @('homolog', 'production')) {
+        $planEnvironment = "$targetEnvironment-plan"
+        foreach ($component in @('Kubernetes', 'Database', 'Auth')) {
+            $repository = $RepositoryNames[$component]
+            Initialize-GitHubEnvironment -Repository $repository -Name $planEnvironment
+            Set-GitHubSecret -Repository $repository -EnvironmentName $planEnvironment -Name TF_API_TOKEN -Value $terraformToken
+            Set-GitHubVariable -Repository $repository -EnvironmentName $planEnvironment -Name TF_CLOUD_ORGANIZATION -Value $TerraformOrganization
+            Set-GitHubVariable -Repository $repository -EnvironmentName $planEnvironment -Name TF_WORKSPACE_HOMOLOG -Value $WorkspaceNames[$component].homolog
+            Set-GitHubVariable -Repository $repository -EnvironmentName $planEnvironment -Name TF_WORKSPACE_PRODUCTION -Value $WorkspaceNames[$component].production
+        }
+
+        Set-GitHubVariable -Repository $RepositoryNames.Kubernetes -EnvironmentName $planEnvironment -Name TF_WORKSPACE_OBSERVABILITY_HOMOLOG -Value $WorkspaceNames.NewRelic.homolog
+        Set-GitHubVariable -Repository $RepositoryNames.Kubernetes -EnvironmentName $planEnvironment -Name TF_WORKSPACE_OBSERVABILITY_PRODUCTION -Value $WorkspaceNames.NewRelic.production
+
         foreach ($repository in $RepositoryNames.Values) {
             Initialize-GitHubEnvironment -Repository $repository -Name $targetEnvironment
             Set-GitHubSecret -Repository $repository -EnvironmentName $targetEnvironment -Name AWS_ACCESS_KEY_ID -Value $credentials.AWS_ACCESS_KEY_ID
