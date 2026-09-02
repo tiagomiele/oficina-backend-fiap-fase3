@@ -3,7 +3,15 @@ name: CD
 on:
   push:
     branches: [main, homolog]
-    tags: ['v*']
+    paths:
+      - '.github/workflows/cd.yml'
+      - '.github/workflows/deploy.yml'
+      - '.mvn/**'
+      - 'k8s/**'
+      - 'src/**'
+      - 'Dockerfile'
+      - 'mvnw'
+      - 'pom.xml'
   workflow_dispatch:
 
 concurrency:
@@ -17,6 +25,7 @@ env:
 jobs:
   verify:
     name: Validate application
+    if: github.ref_name == 'homolog' || github.ref_name == 'main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -97,7 +106,7 @@ jobs:
   deploy-production:
     name: Deploy PRODUÇÃO
     needs: build-publish
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/deploy.yml
     with:
       environment: production
