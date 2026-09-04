@@ -81,6 +81,8 @@ Serviços locais:
 
 O `verify` executa testes unitários, testes de integração, ArchUnit e o gate de cobertura JaCoCo do domínio.
 
+No GitHub Actions, o CI apresenta quatro jobs sequenciais: `Repository validation → Build, test & coverage → SBOM → Security scan`. O CD já permanece linear: validação da aplicação → build/publicação da imagem → deploy do ambiente correspondente. Pull Requests não executam deploy.
+
 ## Preparar homologação ou produção
 
 Com os quatro repositórios clonados como diretórios irmãos, copie o bloco `[default]` do AWS Academy e execute:
