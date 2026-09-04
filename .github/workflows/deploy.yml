@@ -32,6 +32,7 @@ jobs:
       SERVERLESS_JWT_AUDIENCE: ${{ vars.SERVERLESS_JWT_AUDIENCE || 'oficina-backend' }}
       NEW_RELIC_ENABLED: ${{ vars.NEW_RELIC_ENABLED || 'false' }}
       NEW_RELIC_APP_NAME: ${{ vars.NEW_RELIC_APP_NAME }}
+      AUTH_BASE_URL: ${{ vars.AUTH_BASE_URL || vars.API_GATEWAY_BASE_URL }}
       NOTIFICATION_ENDPOINT: ${{ vars.NOTIFICATION_ENDPOINT }}
       DEPLOY_ENABLED: ${{ vars.DEPLOY_ENABLED || 'false' }}
     steps:
@@ -63,7 +64,7 @@ jobs:
           for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN APP_DB_PASSWORD APP_JWT_SECRET APP_ADMIN_PASSWORD APP_SERVERLESS_JWT_PUBLIC_KEY; do
             if [ -z "${!name:-}" ]; then missing+=("$name"); fi
           done
-          for name in EKS_CLUSTER_NAME APP_DB_URL APP_DB_USER; do
+          for name in EKS_CLUSTER_NAME APP_DB_URL APP_DB_USER AUTH_BASE_URL; do
             if [ -z "${!name:-}" ]; then missing+=("$name"); fi
           done
           if [ "${NEW_RELIC_ENABLED,,}" = "true" ] && [ -z "$NEW_RELIC_LICENSE_KEY" ]; then
@@ -146,6 +147,7 @@ jobs:
             --from-literal=SPRING_PROFILES_ACTIVE=prod \
             --from-literal=OFICINA_ENVIRONMENT='${{ inputs.environment }}' \
             --from-literal=ADMIN_EMAIL=admin@oficina.local \
+            --from-literal=AUTH_BASE_URL="$AUTH_BASE_URL" \
             --from-literal=NOTIFICACAO_TIPO="$notification_type" \
             --from-literal=NOTIFICATION_ENDPOINT="$NOTIFICATION_ENDPOINT" \
             --from-literal=SERVERLESS_JWT_ISSUER="$SERVERLESS_JWT_ISSUER" \

@@ -44,6 +44,10 @@ sequenceDiagram
 
 A Lambda de login executa nas subnets privadas, reutiliza o security group autorizado no RDS e consulta o PostgreSQL por JDBC. RDS Proxy poderá ser avaliado depois conforme permissões e custos do AWS Academy.
 
+## Swagger unificado
+
+O Swagger do Backend documenta os dois emissores de token. A operação `POST /auth/cpf` possui um servidor OpenAPI próprio, configurado por `AUTH_BASE_URL`, e o navegador chama diretamente o API Gateway. Funcionários e técnicos usam `POST /auth/login` no servidor do Backend. O perfil é obtido do cadastro autenticado e não pode ser escolhido no request.
+
 ## Contrato
 
 O contrato inicial está em [authentication-api.yaml](../contracts/authentication-api.yaml). Alterações incompatíveis exigem nova versão do endpoint e atualização do RFC correspondente.
