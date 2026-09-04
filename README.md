@@ -72,6 +72,16 @@ Serviços locais:
 - Healthcheck: `http://localhost:8080/actuator/health`
 - Adminer: `http://localhost:8081`
 
+### Obter tokens pelo Swagger
+
+O Swagger reúne os fluxos de autenticação da plataforma:
+
+- `POST /auth/cpf`: cliente autenticado no Auth Serverless pelo API Gateway;
+- `POST /auth/login`: funcionário ou técnico autenticado no Backend por e-mail e senha;
+- `POST /usuarios`: funcionário autenticado cadastra novos funcionários ou técnicos.
+
+O perfil é determinado pelo cadastro, nunca pelo request de login. Configure `AUTH_BASE_URL` com a URL base do API Gateway para habilitar o `Try it out` de `/auth/cpf`; homologação e produção recebem esse valor automaticamente pelo GitHub Environment.
+
 ### Validar o projeto
 
 ```bash

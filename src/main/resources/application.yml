@@ -87,6 +87,8 @@ oficina:
       public-key: ${SERVERLESS_JWT_PUBLIC_KEY:}
       issuer: ${SERVERLESS_JWT_ISSUER:oficina-auth-serverless}
       audience: ${SERVERLESS_JWT_AUDIENCE:oficina-backend}
+    serverless-auth:
+      base-url: ${AUTH_BASE_URL:}
     rate-limit:
       login-per-minute: 10
       public-per-minute: 30

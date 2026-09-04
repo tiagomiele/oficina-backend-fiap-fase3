@@ -72,6 +72,7 @@ param(
   [string]$MailUser      = $env:MAIL_USERNAME,
   [string]$MailPassword          = $env:MAIL_PASSWORD,
   [string]$MailFrom              = "nao-responder@oficina.local",
+  [string]$AuthBaseUrl           = $env:AUTH_BASE_URL,
   [string]$NotificationEndpoint  = $env:NOTIFICATION_ENDPOINT,
   [string]$NotificationApiKey    = $env:NOTIFICATION_API_KEY,
   [string]$ServerlessJwtPublicKey = $env:SERVERLESS_JWT_PUBLIC_KEY,
@@ -140,6 +141,7 @@ data:
   SERVER_PORT: "8080"
   SPRING_PROFILES_ACTIVE: ""
   ADMIN_EMAIL: "admin@oficina.local"
+  AUTH_BASE_URL: "${AuthBaseUrl}"
   NOTIFICACAO_TIPO: "${NotificacaoTipo}"
   NOTIFICACAO_REMETENTE: "${MailFrom}"
   MAIL_HOST: "${MailHost}"
