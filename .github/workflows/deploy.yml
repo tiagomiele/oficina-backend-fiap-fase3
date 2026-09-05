@@ -187,7 +187,7 @@ jobs:
 
       - name: Wait for application rollout
         if: env.DEPLOY_ENABLED == 'true'
-        run: kubectl rollout status deployment/oficina-app -n "${{ inputs.namespace }}" --timeout=600s
+        run: kubectl rollout status deployment/oficina-app -n "${{ inputs.namespace }}" --timeout=900s
 
       - name: Smoke test
         if: env.DEPLOY_ENABLED == 'true'
