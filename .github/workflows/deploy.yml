@@ -181,6 +181,10 @@ jobs:
           kubectl apply -f rendered/hpa.yaml
           kubectl apply -f rendered/pdb.yaml
 
+      - name: Restart application after configuration update
+        if: env.DEPLOY_ENABLED == 'true'
+        run: kubectl rollout restart deployment/oficina-app -n "${{ inputs.namespace }}"
+
       - name: Wait for application rollout
         if: env.DEPLOY_ENABLED == 'true'
         run: kubectl rollout status deployment/oficina-app -n "${{ inputs.namespace }}" --timeout=600s
