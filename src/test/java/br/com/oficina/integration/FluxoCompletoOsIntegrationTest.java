@@ -18,8 +18,8 @@ class FluxoCompletoOsIntegrationTest extends IntegrationTestBase {
             .contentType("application/json")
             .body(
                 """
-                {"nome":"João Teste","documento":"52998224725","email":"joao@teste.com","telefone":"11999999999"}
-                """)
+{"nome":"João Teste","documento":"52998224725","email":"joao@teste.com","telefone":"11999999999"}
+""")
             .post("clientes")
             .then()
             .statusCode(201)
@@ -45,7 +45,8 @@ class FluxoCompletoOsIntegrationTest extends IntegrationTestBase {
         given()
             .header("Authorization", "Bearer " + token)
             .contentType("application/json")
-            .body("""
+            .body(
+                """
                 {"nome":"Troca de óleo","descricao":"Troca completa","precoBase":150.00}
                 """)
             .post("servicos")
@@ -72,6 +73,12 @@ class FluxoCompletoOsIntegrationTest extends IntegrationTestBase {
             .extract()
             .path("numero");
 
+    given()
+        .header("Authorization", "Bearer " + tokenCliente(idCliente + 999))
+        .get("/consulta/ordens-servico/" + numeroOs + "/status")
+        .then()
+        .statusCode(404);
+
     // 5. Técnico adiciona serviço → EM_DIAGNOSTICO
     given()
         .header("Authorization", "Bearer " + token)
@@ -96,6 +103,7 @@ class FluxoCompletoOsIntegrationTest extends IntegrationTestBase {
 
     // 7. Cliente aprova → EM_EXECUCAO
     given()
+        .header("Authorization", "Bearer " + tokenCliente(idCliente))
         .post("/ordens-servico/" + numeroOs + "/aprovar")
         .then()
         .statusCode(200)
@@ -111,8 +119,10 @@ class FluxoCompletoOsIntegrationTest extends IntegrationTestBase {
 
     // 9. Cliente confirma pagamento → PAGA
     given()
+        .header("Authorization", "Bearer " + tokenCliente(idCliente))
         .contentType("application/json")
-        .body("""
+        .body(
+            """
             {"comprovante":"PIX-12345"}
             """)
         .post("/ordens-servico/" + numeroOs + "/confirmar-pagamento")
@@ -127,5 +137,16 @@ class FluxoCompletoOsIntegrationTest extends IntegrationTestBase {
         .then()
         .statusCode(200)
         .body("status", equalTo("ENTREGUE"));
+
+    given()
+        .header("Authorization", "Bearer " + tokenCliente(idCliente))
+        .get("/ordens-servico/" + numeroOs + "/historico")
+        .then()
+        .statusCode(200)
+        .body("size()", equalTo(7))
+        .body("[0].status", equalTo("RECEBIDA"))
+        .body("[0].duracaoMilisegundos", notNullValue())
+        .body("[0].correlationId", not(emptyOrNullString()))
+        .body("[6].status", equalTo("ENTREGUE"));
   }
 }

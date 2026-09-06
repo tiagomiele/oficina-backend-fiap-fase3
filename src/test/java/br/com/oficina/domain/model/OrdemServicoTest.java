@@ -243,15 +243,13 @@ class OrdemServicoTest {
     assertThat(os.getMotivoRejeicao()).isEqualTo("cliente desistiu");
     assertThat(os.getValorTotalConserto()).isEqualTo(Dinheiro.ZERO);
     assertThat(aDevolver).hasSize(2);
-    assertThat(os.getItens())
-        .allMatch(i -> i.getStatus() == StatusOrcamentoItem.CANCELADO);
+    assertThat(os.getItens()).allMatch(i -> i.getStatus() == StatusOrcamentoItem.CANCELADO);
   }
 
   @Test
   void cancelarEmDiagnosticoForaDoDiagnosticoFalha() {
     OrdemServico os = nova();
-    assertThatThrownBy(() -> os.cancelarEmDiagnostico("x"))
-        .isInstanceOf(BusinessException.class);
+    assertThatThrownBy(() -> os.cancelarEmDiagnostico("x")).isInstanceOf(BusinessException.class);
   }
 
   @Test

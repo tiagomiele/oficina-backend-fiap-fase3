@@ -27,7 +27,9 @@ public record TempoMedioPorOsResponse(
             example = "2.75")
         Double tempoMedioHoras,
     @Schema(description = "Total de OS consideradas no cálculo.", example = "2") int totalOrdens,
-    @Schema(description = "Lista das OS encerradas que entraram no cálculo, ordenadas por fim_execucao.")
+    @Schema(
+            description =
+                "Lista das OS encerradas que entraram no cálculo, ordenadas por fim_execucao.")
         List<OrdemExecutadaResponse> ordens) {
 
   @Schema(

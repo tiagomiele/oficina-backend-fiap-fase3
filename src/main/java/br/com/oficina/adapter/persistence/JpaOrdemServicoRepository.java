@@ -1,31 +1,50 @@
 package br.com.oficina.adapter.persistence;
 
+import br.com.oficina.adapter.exception.RequestIdFilter;
+import br.com.oficina.domain.enums.StatusOrdemServico;
 import br.com.oficina.domain.model.Dinheiro;
 import br.com.oficina.domain.model.ItemOrcamento;
 import br.com.oficina.domain.model.NumeroOS;
 import br.com.oficina.domain.model.OrdemServico;
 import br.com.oficina.domain.model.Placa;
+import br.com.oficina.usecase.gateway.HistoricoStatusOrdemServicoRepository;
+import br.com.oficina.usecase.gateway.ObservabilidadeGateway;
 import br.com.oficina.usecase.gateway.OrdemServicoRepository;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 
 @Component
 public class JpaOrdemServicoRepository implements OrdemServicoRepository {
 
   private final SpringDataOrdemServicoRepository repo;
+  private final HistoricoStatusOrdemServicoRepository historico;
+  private final ObservabilidadeGateway observabilidade;
 
-  public JpaOrdemServicoRepository(SpringDataOrdemServicoRepository repo) {
+  public JpaOrdemServicoRepository(
+      SpringDataOrdemServicoRepository repo,
+      HistoricoStatusOrdemServicoRepository historico,
+      ObservabilidadeGateway observabilidade) {
     this.repo = repo;
+    this.historico = historico;
+    this.observabilidade = observabilidade;
   }
 
   @Override
   public OrdemServico salvar(OrdemServico os) {
     String id = os.getNumero().valor();
-    OrdemServicoJpaEntity entity = repo.findById(id).orElseGet(() -> criar(id, os.getCriadoEm()));
+    Optional<OrdemServicoJpaEntity> existente = repo.findById(id);
+    StatusOrdemServico statusAnterior =
+        existente.map(OrdemServicoJpaEntity::getStatus).orElse(null);
+    Instant atualizadoEmAnterior =
+        existente.map(OrdemServicoJpaEntity::getAtualizadoEm).orElse(null);
+    OrdemServicoJpaEntity entity = existente.orElseGet(() -> criar(id, os.getCriadoEm()));
     entity.setIdCliente(os.getIdCliente());
     entity.setIdPlaca(os.getPlaca().valor());
     entity.setStatus(os.getStatus());
@@ -55,7 +74,27 @@ public class JpaOrdemServicoRepository implements OrdemServicoRepository {
       entity.getItens().add(ij);
     }
     OrdemServicoJpaEntity saved = repo.save(entity);
+    String correlationId = MDC.get(RequestIdFilter.MDC_KEY);
+    if (correlationId == null || correlationId.isBlank()) {
+      correlationId = UUID.randomUUID().toString();
+    }
+    historico.registrarTransicao(
+        id, statusAnterior, os.getStatus(), os.getAtualizadoEm(), correlationId);
+    if (statusAnterior == null) {
+      observabilidade.ordemServicoCriada(id, os.getStatus());
+    } else if (statusAnterior != os.getStatus()) {
+      long duracaoMilissegundos = duracaoMilissegundos(atualizadoEmAnterior, os.getAtualizadoEm());
+      observabilidade.ordemServicoStatusAlterado(
+          id, statusAnterior, os.getStatus(), duracaoMilissegundos);
+    }
     return toDomain(saved, os.getOrcamentoAtual());
+  }
+
+  private long duracaoMilissegundos(Instant inicio, Instant fim) {
+    if (inicio == null || fim == null || fim.isBefore(inicio)) {
+      return 0L;
+    }
+    return Duration.between(inicio, fim).toMillis();
   }
 
   private OrdemServicoJpaEntity criar(String id, Instant criadoEm) {

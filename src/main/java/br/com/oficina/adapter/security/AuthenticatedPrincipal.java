@@ -1,6 +1,8 @@
 package br.com.oficina.adapter.security;
 
-import br.com.oficina.domain.enums.Papel;
-import java.util.UUID;
+public record AuthenticatedPrincipal(String subject, String email, String role, Long clientId) {
 
-public record AuthenticatedPrincipal(UUID userId, String email, Papel papel) {}
+  public boolean isClient() {
+    return "CLIENTE".equals(role) && clientId != null;
+  }
+}

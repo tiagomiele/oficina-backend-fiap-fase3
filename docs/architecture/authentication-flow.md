@@ -12,7 +12,7 @@ sequenceDiagram
     participant B as Backend no EKS
 
     Cliente->>G: POST /auth/cpf
-    G->>L: CPF normalizado
+    G->>L: Corpo JSON com CPF
     L->>L: Validar dígitos verificadores
     L->>D: Consultar cliente por CPF
     D-->>L: Cliente e status
@@ -38,11 +38,15 @@ sequenceDiagram
 - usar expiração curta e assinatura assimétrica;
 - armazenar a chave privada fora do código;
 - validar token no API Gateway e manter defesa adicional no backend;
-- mascarar CPF em logs e eventos.
+- não registrar CPF ou token em logs e eventos.
 
 ## Acesso ao banco
 
-A Lambda deve executar dentro da VPC e acessar o RDS por conexão protegida. A implementação avaliará RDS Proxy conforme permissões e custos disponíveis no AWS Academy.
+A Lambda de login executa nas subnets privadas, reutiliza o security group autorizado no RDS e consulta o PostgreSQL por JDBC. RDS Proxy poderá ser avaliado depois conforme permissões e custos do AWS Academy.
+
+## Swagger unificado
+
+O Swagger do Backend documenta os dois emissores de token. A operação `POST /auth/cpf` possui um servidor OpenAPI próprio, configurado por `AUTH_BASE_URL`, e o navegador chama diretamente o API Gateway. Funcionários e técnicos usam `POST /auth/login` no servidor do Backend. O perfil é obtido do cadastro autenticado e não pode ser escolhido no request.
 
 ## Contrato
 

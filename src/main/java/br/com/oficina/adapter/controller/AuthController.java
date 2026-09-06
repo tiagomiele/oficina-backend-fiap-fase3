@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
@@ -39,8 +40,8 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(
     name = "01-Autenticação e Logins para Aplicação",
     description =
-        "Endpoints de autenticação (login com JWT) e cadastro de usuários administrativos da"
-            + " oficina.")
+        "Emissão de JWT para clientes pelo Auth Serverless, login de funcionários/técnicos e"
+            + " cadastro de usuários da oficina.")
 public class AuthController {
 
   private final AuthServiceImpl loginService;
@@ -57,7 +58,8 @@ public class AuthController {
       description =
           "Credenciais de login. O campo `validadeMinutos` é opcional (1–1440 min, default 60).",
       example =
-          "{\"email\":\"admin@oficina.local\",\"senha\":\"admin123\",\"validadeMinutos\":120}")
+          "{\"email\":\"admin@oficina.local\",\"senha\":\"informe-a-senha-configurada\","
+              + "\"validadeMinutos\":120}")
   public record LoginRequest(
       @Schema(
               description = "E-mail do usuário cadastrado.",
@@ -68,7 +70,7 @@ public class AuthController {
           String email,
       @Schema(
               description = "Senha em texto puro (o hash é feito no servidor com BCrypt).",
-              example = "admin123",
+              example = "informe-a-senha-configurada",
               requiredMode = Schema.RequiredMode.REQUIRED)
           @NotBlank
           String senha,
@@ -147,11 +149,12 @@ public class AuthController {
 
   /** 01 - Autenticação. */
   @Operation(
-      summary = "01.01 - Autenticação — login e emissão de JWT",
+      summary = "01.02 - Funcionário/Técnico — login e emissão de JWT",
       description =
           "Autentica o usuário por e-mail/senha e retorna um JWT de acesso. Não há refresh"
               + " token — controle a duração com o campo opcional `validadeMinutos`"
               + " (1–1440 min, default 60).")
+  @SecurityRequirements
   @ApiResponses({
     @ApiResponse(
         responseCode = "200",
@@ -175,13 +178,16 @@ public class AuthController {
                       examples = {
                         @ExampleObject(
                             name = "default",
-                            summary = "Login padrão (token de 60 min)",
-                            value = "{\"email\":\"admin@oficina.local\",\"senha\":\"admin123\"}"),
+                            summary = "Login de funcionário (token de 60 min)",
+                            value =
+                                "{\"email\":\"admin@oficina.local\","
+                                    + "\"senha\":\"informe-a-senha-configurada\"}"),
                         @ExampleObject(
                             name = "comValidade",
                             summary = "Login com validade customizada (120 min)",
                             value =
-                                "{\"email\":\"admin@oficina.local\",\"senha\":\"admin123\","
+                                "{\"email\":\"tecnico@oficina.local\","
+                                    + "\"senha\":\"informe-a-senha-configurada\","
                                     + "\"validadeMinutos\":120}")
                       }))
           @Valid
@@ -193,7 +199,7 @@ public class AuthController {
 
   /** 02 - Usuários Administrativos / criar. */
   @Operation(
-      summary = "01.02 - Usuários Administrativos — cadastrar novo usuário",
+      summary = "01.03 - Usuários Administrativos — cadastrar novo usuário",
       description =
           "Cadastra um funcionário ou técnico da oficina. Exige token JWT de"
               + " `FUNCIONARIO_DA_OFICINA`.")

@@ -1,10 +1,12 @@
 package br.com.oficina.adapter.exception;
 
-import br.com.oficina.adapter.exception.RequestIdFilter;
 import br.com.oficina.domain.exception.BusinessException;
+import br.com.oficina.usecase.gateway.ObservabilidadeGateway;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -25,6 +27,13 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 public class GlobalExceptionHandler {
 
   private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+  private static final Pattern ORDEM_SERVICO_PATH = Pattern.compile("/ordens-servico/([^/?]+)");
+
+  private final ObservabilidadeGateway observabilidade;
+
+  public GlobalExceptionHandler(ObservabilidadeGateway observabilidade) {
+    this.observabilidade = observabilidade;
+  }
 
   private static final Set<String> CONFLICT_CODES =
       Set.of(
@@ -67,6 +76,7 @@ public class GlobalExceptionHandler {
     } else {
       status = HttpStatus.UNPROCESSABLE_ENTITY;
     }
+    registrarFalhaOrdemServico(req, ex.getCodigo());
     return build(status, ex.getCodigo(), ex.getMessage(), req);
   }
 
@@ -132,8 +142,17 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ApiError> handleGeneric(Exception ex, HttpServletRequest req) {
-    log.error("Erro não tratado", ex);
+    registrarFalhaOrdemServico(req, "ERRO_INTERNO");
+    log.error("Erro não tratado: tipoErro={}", ex.getClass().getSimpleName());
     return build(HttpStatus.INTERNAL_SERVER_ERROR, "ERRO_INTERNO", "Erro interno", req);
+  }
+
+  private void registrarFalhaOrdemServico(HttpServletRequest req, String codigoErro) {
+    Matcher matcher = ORDEM_SERVICO_PATH.matcher(req.getRequestURI());
+    if (matcher.find()) {
+      observabilidade.ordemServicoProcessamentoFalhou(
+          matcher.group(1), req.getMethod(), codigoErro);
+    }
   }
 
   private ResponseEntity<ApiError> build(

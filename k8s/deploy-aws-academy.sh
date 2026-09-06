@@ -1,48 +1,67 @@
 #!/usr/bin/env bash
 # Deploy da aplicacao no EKS do AWS Academy usando o RDS (banco gerenciado).
 #
-# No AWS Academy o Postgres dentro do cluster NAO funciona: o driver EBS CSI
-# precisa de IRSA (role via OIDC), que o lab bloqueia, entao o PVC nunca provisiona.
-# A arquitetura correta (e a da Fase 2) usa o RDS criado pelo Terraform.
+# Na Fase 3, o banco gerenciado pertence ao repositorio
+# oficina-database-infra-fiap-fase3. A aplicacao usa o RDS provisionado por ele.
 #
-# Este script descobre o endpoint do RDS, cria namespace/ConfigMap/Secret/Deployment/
-# Service/HPA e NAO aplica os manifests postgres-*.yaml.
+# Este script descobre o endpoint do RDS e cria namespace, ConfigMap, Secret,
+# Deployment, Service e HPA somente para a aplicacao.
 #
 # Uso:
 #   DB_PASSWORD="<sua-senha-do-rds>" ./deploy-aws-academy.sh
-# Variaveis opcionais:
+# Variaveis:
 #   REGION (default us-west-2), IMAGE (default GHCR latest)
-#   DB_INSTANCE_ID (default oficina-dev-db)
+#   DB_INSTANCE_ID (default oficina-homolog-db), DB_NAME e DB_USER
 #   JWT_SECRET (se vazio, e gerado aleatorio) / ADMIN_PASSWORD (default de DEV)
-#   E-mail real (opcional): MAIL_HOST, MAIL_PORT (default 587), MAIL_USERNAME,
-#     MAIL_PASSWORD, MAIL_FROM (default nao-responder@oficina.local). Se MAIL_HOST
-#     for informado, ativa NOTIFICACAO_TIPO=smtp; senao usa modo 'log' (ficticio).
+#   SERVERLESS_JWT_PUBLIC_KEY (obrigatoria), SERVERLESS_JWT_ISSUER e SERVERLESS_JWT_AUDIENCE
+#   AUTH_BASE_URL: URL base do API Gateway usada pelo Swagger para autenticar clientes.
+#   Notificacao serverless (preferencial): NOTIFICATION_ENDPOINT e NOTIFICATION_API_KEY.
+#   Fallback SMTP: MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD e MAIL_FROM.
 #   Ex. Mailtrap:
 #     DB_PASSWORD=... MAIL_HOST=sandbox.smtp.mailtrap.io MAIL_USERNAME=... \
 #       MAIL_PASSWORD=... ./deploy-aws-academy.sh
 set -euo pipefail
 
 REGION="${REGION:-us-west-2}"
-IMAGE="${IMAGE:-ghcr.io/tiagomiele/fiap-tech-challenge-oficina-mecanica-fase2:latest}"
-DB_INSTANCE_ID="${DB_INSTANCE_ID:-oficina-dev-db}"
+IMAGE="${IMAGE:-ghcr.io/tiagomiele/oficina-backend-fiap-fase3:latest}"
+DB_INSTANCE_ID="${DB_INSTANCE_ID:-oficina-homolog-db}"
+DB_NAME="${DB_NAME:-oficina}"
+DB_USER="${DB_USER:-oficina_admin}"
 MAIL_HOST="${MAIL_HOST:-}"
 MAIL_PORT="${MAIL_PORT:-587}"
 MAIL_USERNAME="${MAIL_USERNAME:-}"
 MAIL_PASSWORD="${MAIL_PASSWORD:-}"
 MAIL_FROM="${MAIL_FROM:-nao-responder@oficina.local}"
+AUTH_BASE_URL="${AUTH_BASE_URL:-}"
+NOTIFICATION_ENDPOINT="${NOTIFICATION_ENDPOINT:-}"
+NOTIFICATION_API_KEY="${NOTIFICATION_API_KEY:-}"
+SERVERLESS_JWT_ISSUER="${SERVERLESS_JWT_ISSUER:-oficina-auth-serverless}"
+SERVERLESS_JWT_AUDIENCE="${SERVERLESS_JWT_AUDIENCE:-oficina-backend}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [[ -z "$MAIL_HOST" ]]; then
-  NOTIFICACAO_TIPO="log"
-  echo "==> Notificacao: modo 'log' (e-mail ficticio). Para e-mail real, defina MAIL_HOST/MAIL_USERNAME/MAIL_PASSWORD."
-else
+if [[ -n "$NOTIFICATION_ENDPOINT" ]]; then
+  if [[ -z "$NOTIFICATION_API_KEY" ]]; then
+    echo "ERRO: defina NOTIFICATION_API_KEY ao usar NOTIFICATION_ENDPOINT." >&2
+    exit 1
+  fi
+  NOTIFICACAO_TIPO="serverless"
+  echo "==> Notificacao: modo serverless"
+elif [[ -n "$MAIL_HOST" ]]; then
   NOTIFICACAO_TIPO="smtp"
   echo "==> Notificacao: modo 'smtp' via ${MAIL_HOST}:${MAIL_PORT}"
+else
+  NOTIFICACAO_TIPO="log"
+  echo "==> Notificacao: modo 'log'"
 fi
 
 if [[ -z "${DB_PASSWORD:-}" ]]; then
   echo "ERRO: defina DB_PASSWORD com a MESMA senha da variavel db_password do Terraform." >&2
   echo "Ex.: DB_PASSWORD='<sua-senha-do-rds>' ./deploy-aws-academy.sh" >&2
+  exit 1
+fi
+
+if [[ -z "${SERVERLESS_JWT_PUBLIC_KEY:-}" ]]; then
+  echo "ERRO: defina SERVERLESS_JWT_PUBLIC_KEY com a chave publica da autenticacao." >&2
   exit 1
 fi
 
@@ -75,15 +94,19 @@ metadata:
   labels:
     app.kubernetes.io/part-of: oficina-backend
 data:
-  DB_URL: "jdbc:postgresql://${RDS}:5432/oficina"
-  DB_USER: "oficina"
+  DB_URL: "jdbc:postgresql://${RDS}:5432/${DB_NAME}"
+  DB_USER: "${DB_USER}"
   SERVER_PORT: "8080"
   SPRING_PROFILES_ACTIVE: ""
   ADMIN_EMAIL: "admin@oficina.local"
+  AUTH_BASE_URL: "${AUTH_BASE_URL}"
   NOTIFICACAO_TIPO: "${NOTIFICACAO_TIPO}"
   NOTIFICACAO_REMETENTE: "${MAIL_FROM}"
   MAIL_HOST: "${MAIL_HOST}"
   MAIL_PORT: "${MAIL_PORT}"
+  NOTIFICATION_ENDPOINT: "${NOTIFICATION_ENDPOINT}"
+  SERVERLESS_JWT_ISSUER: "${SERVERLESS_JWT_ISSUER}"
+  SERVERLESS_JWT_AUDIENCE: "${SERVERLESS_JWT_AUDIENCE}"
 YAML
 
 # Secret via 'kubectl create secret --from-literal' (em vez de YAML inline) para que
@@ -91,16 +114,20 @@ YAML
 SECRET_ARGS=(generic oficina-secrets --namespace oficina
   --from-literal=DB_PASSWORD="${DB_PASSWORD}"
   --from-literal=JWT_SECRET="${JWT_SECRET}"
-  --from-literal=ADMIN_PASSWORD="${ADMIN_PASSWORD}")
+  --from-literal=ADMIN_PASSWORD="${ADMIN_PASSWORD}"
+  --from-literal=SERVERLESS_JWT_PUBLIC_KEY="${SERVERLESS_JWT_PUBLIC_KEY}")
 if [[ "$NOTIFICACAO_TIPO" == "smtp" ]]; then
   SECRET_ARGS+=(--from-literal=MAIL_USERNAME="${MAIL_USERNAME}")
   SECRET_ARGS+=(--from-literal=MAIL_PASSWORD="${MAIL_PASSWORD}")
+elif [[ "$NOTIFICACAO_TIPO" == "serverless" ]]; then
+  SECRET_ARGS+=(--from-literal=NOTIFICATION_API_KEY="${NOTIFICATION_API_KEY}")
 fi
 kubectl create secret "${SECRET_ARGS[@]}" --dry-run=client -o yaml | kubectl apply -f -
 
 sed "s#image: oficina-backend:latest#image: ${IMAGE}#" "$HERE/app-deployment.yaml" | kubectl apply -f -
 kubectl apply -f "$HERE/app-service.yaml"
 kubectl apply -f "$HERE/hpa.yaml"
+kubectl apply -f "$HERE/pdb.yaml"
 
 echo
 echo "==> Deploy aplicado. Acompanhe:"

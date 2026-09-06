@@ -25,6 +25,7 @@
         <jjwt.version>0.12.6</jjwt.version>
         <archunit.version>1.3.0</archunit.version>
         <logstash.version>7.4</logstash.version>
+        <new-relic.version>9.3.0</new-relic.version>
         <jacoco.version>0.8.12</jacoco.version>
         <dependency-check.version>12.2.1</dependency-check.version>
         <cyclonedx.version>2.8.2</cyclonedx.version>
@@ -128,6 +129,11 @@
             <groupId>net.logstash.logback</groupId>
             <artifactId>logstash-logback-encoder</artifactId>
             <version>${logstash.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.newrelic.agent.java</groupId>
+            <artifactId>newrelic-api</artifactId>
+            <version>${new-relic.version}</version>
         </dependency>
 
         <!-- Tests -->

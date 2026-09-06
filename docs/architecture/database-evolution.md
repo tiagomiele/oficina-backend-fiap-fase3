@@ -4,7 +4,7 @@
 
 O PostgreSQL será mantido porque o domínio possui relacionamentos transacionais entre clientes, veículos, ordens, orçamentos, estoque e financeiro. Integridade referencial, transações ACID, constraints e índices relacionais são necessários para manter consistência.
 
-## Ajustes planejados
+## Ajustes da Semana 3
 
 ### Autenticação por CPF
 
@@ -15,7 +15,7 @@ O PostgreSQL será mantido porque o domínio possui relacionamentos transacionai
 
 ### Histórico de status
 
-O modelo atual registra criação, atualização, início e fim da execução. Para medir diagnóstico, execução e finalização, será criada uma estrutura de histórico contendo:
+A migration V3 cria uma estrutura de histórico para medir diagnóstico, execução e finalização, contendo:
 
 - Ordem de Serviço;
 - status;
@@ -46,6 +46,5 @@ A escolha final será confirmada por consultas reais e planos de execução, evi
 ## Entregáveis posteriores
 
 - diagrama entidade-relacionamento atualizado;
-- migrations Flyway;
-- justificativa dos relacionamentos e índices;
-- evidências de integridade e desempenho.
+- evidências de integridade e desempenho em RDS;
+- revisão dos índices com planos de execução reais.

@@ -1,0 +1,91 @@
+name: Validacao E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Ambiente GitHub que contem URLs e credenciais
+        required: true
+        type: choice
+        options: [homolog, production]
+        default: homolog
+      run_load_test:
+        description: Executar smoke de carga k6 apos o fluxo funcional
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: e2e-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  functional:
+    name: Postman/Newman (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    env:
+      BACKEND_BASE_URL: ${{ vars.BACKEND_BASE_URL }}
+      API_GATEWAY_BASE_URL: ${{ vars.API_GATEWAY_BASE_URL }}
+      AUTH_BASE_URL: ${{ vars.AUTH_BASE_URL || vars.API_GATEWAY_BASE_URL }}
+      ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL || 'admin@oficina.local' }}
+      ADMIN_PASSWORD: ${{ secrets.APP_ADMIN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate endpoint configuration
+        run: |
+          set -euo pipefail
+          for name in BACKEND_BASE_URL API_GATEWAY_BASE_URL AUTH_BASE_URL ADMIN_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name ausente no GitHub Environment '${{ inputs.environment }}'."
+              exit 1
+            fi
+          done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Newman runner
+        run: npm install --global newman@6.2.1 --ignore-scripts
+      - name: Run functional and security collection
+        working-directory: tests/postman
+        run: |
+          set -euo pipefail
+          newman run oficina-weeks4-5.postman_collection.json \
+            --env-var "backendBaseUrl=$BACKEND_BASE_URL" \
+            --env-var "apiGatewayBaseUrl=$API_GATEWAY_BASE_URL" \
+            --env-var "authBaseUrl=$AUTH_BASE_URL" \
+            --env-var "adminEmail=$ADMIN_EMAIL" \
+            --env-var "adminPassword=$ADMIN_PASSWORD" \
+            --reporters cli,junit \
+            --reporter-junit-export newman-results.xml \
+            --timeout-request 15000 \
+            --bail
+      - name: Upload sanitized test result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: newman-${{ inputs.environment }}-${{ github.run_id }}
+          path: tests/postman/newman-results.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  load:
+    name: k6 smoke load (${{ inputs.environment }})
+    needs: functional
+    if: inputs.run_load_test
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: grafana/setup-k6-action@v1
+      - name: Run bounded health load
+        env:
+          BACKEND_BASE_URL: ${{ vars.BACKEND_BASE_URL }}
+          VUS: '5'
+          RAMP_UP: 15s
+          HOLD: 30s
+        run: k6 run tests/k6/smoke-load.js

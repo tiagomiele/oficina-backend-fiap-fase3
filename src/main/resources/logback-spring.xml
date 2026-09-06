@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
+    <springProperty scope="context" name="environment" source="oficina.environment" defaultValue="local"/>
+
     <springProfile name="!prod">
         <include resource="org/springframework/boot/logging/logback/base.xml"/>
     </springProfile>
@@ -7,7 +9,7 @@
     <springProfile name="prod">
         <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
             <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-                <customFields>{"application":"oficina-backend"}</customFields>
+                <customFields>{"application":"oficina-backend","environment":"${environment}"}</customFields>
             </encoder>
         </appender>
         <root level="INFO">

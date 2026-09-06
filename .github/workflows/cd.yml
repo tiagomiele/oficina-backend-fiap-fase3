@@ -1,13 +1,17 @@
 name: CD
 
-# Esteira de entrega com promoção por ambiente:
-#   feature/*  -> STG          (deploy automático)
-#   release/*  -> PRÉ-PRODUÇÃO (deploy automático)
-#   main / v*  -> PRODUÇÃO     (deploy com aprovação manual via GitHub Environment)
 on:
   push:
-    branches: [main, 'feature/**', 'release/**']
-    tags: ['v*']
+    branches: [main, homolog]
+    paths:
+      - '.github/workflows/cd.yml'
+      - '.github/workflows/deploy.yml'
+      - '.mvn/**'
+      - 'k8s/**'
+      - 'src/**'
+      - 'Dockerfile'
+      - 'mvnw'
+      - 'pom.xml'
   workflow_dispatch:
 
 concurrency:
@@ -19,9 +23,27 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  # ─── Estágio 2: Build + Push da imagem Docker para o GHCR ───
+  verify:
+    name: Validate application
+    if: github.ref_name == 'homolog' || github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Validate format, architecture and tests
+        run: |
+          chmod +x mvnw
+          ./mvnw -B spotless:check verify
+
   build-publish:
     name: Docker build & push (GHCR)
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -31,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Calcular nome e tags da imagem
+      - name: Calculate image tags
         id: meta
         run: |
           set -euo pipefail
@@ -44,24 +66,23 @@ jobs:
           ${IMAGE}:latest"
           fi
           {
-            echo "image=${IMAGE}"
             echo "image_ref=${IMAGE}:${GITHUB_SHA}"
             echo "tags<<EOF"
             echo "${TAGS}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Login no GitHub Container Registry
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configurar Docker Buildx
+      - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build e push da imagem
+      - name: Build and push image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -71,62 +92,24 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ─── Estágio 3a: Deploy em STG (branches feature/*) ───
-  deploy-stg:
-    name: Deploy STG
+  deploy-homolog:
+    name: Deploy HOMOLOG
     needs: build-publish
-    if: startsWith(github.ref, 'refs/heads/feature/')
+    if: github.ref == 'refs/heads/homolog'
     uses: ./.github/workflows/deploy.yml
     with:
-      environment: staging
-      namespace: oficina-stg
-      image_ref: ${{ needs.build-publish.outputs.image_ref }}
-    secrets: inherit
-
-  # ─── Estágio 3b: Deploy em PRÉ-PRODUÇÃO (branches release/*) ───
-  deploy-preprod:
-    name: Deploy PRÉ-PRODUÇÃO
-    needs: build-publish
-    if: startsWith(github.ref, 'refs/heads/release/')
-    uses: ./.github/workflows/deploy.yml
-    with:
-      environment: pre-prod
+      environment: homolog
       namespace: oficina-homolog
       image_ref: ${{ needs.build-publish.outputs.image_ref }}
     secrets: inherit
 
-  # ─── Gate manual de produção (repo privado Free não tem "Required reviewers") ───
-  # Abre uma issue marcando os aprovadores e pausa até alguém comentar "approved".
-  approve-prod:
-    name: Aprovação manual (produção)
-    needs: build-publish
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      issues: write
-    steps:
-      - name: Aguardar aprovação manual
-        uses: trstringer/manual-approval@v1
-        with:
-          secret: ${{ github.token }}
-          approvers: tiagomiele
-          minimum-approvals: 1
-          issue-title: "Aprovar deploy em PRODUÇÃO — ${{ github.sha }}"
-          issue-body: |
-            Deploy de produção aguardando aprovação.
-            Imagem: `${{ needs.build-publish.outputs.image_ref }}`
-
-            Comente **approved** / **approve** / **lgtm** para liberar,
-            ou **denied** / **deny** para cancelar.
-
-  # ─── Estágio 3c: Deploy em PRODUÇÃO (main / tag v*) — após aprovação manual ───
-  deploy-prod:
+  deploy-production:
     name: Deploy PRODUÇÃO
-    needs: [build-publish, approve-prod]
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    needs: build-publish
+    if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/deploy.yml
     with:
       environment: production
-      namespace: oficina-prod
+      namespace: oficina-production
       image_ref: ${{ needs.build-publish.outputs.image_ref }}
     secrets: inherit

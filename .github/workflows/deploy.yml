@@ -1,23 +1,18 @@
 name: Deploy (reusable)
 
-# Workflow reutilizável de deploy no Kubernetes, parametrizado por ambiente.
-# Chamado pelo cd.yml para STG, pré-produção e produção.
-# O gate manual de produção é aplicado pela protection rule do GitHub Environment
-# informado em `environment` (ex.: production com required reviewers).
-
 on:
   workflow_call:
     inputs:
       environment:
-        description: "GitHub Environment alvo (staging, pre-prod, production)"
+        description: GitHub Environment alvo
         required: true
         type: string
       namespace:
-        description: "Namespace Kubernetes do ambiente"
+        description: Namespace Kubernetes do ambiente
         required: true
         type: string
       image_ref:
-        description: "Imagem completa a ser deployada (registry/owner/app:tag)"
+        description: Imagem completa a ser implantada
         required: true
         type: string
 
@@ -28,112 +23,193 @@ jobs:
     environment: ${{ inputs.environment }}
     permissions:
       contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+      APP_DB_URL: ${{ vars.APP_DB_URL }}
+      APP_DB_USER: ${{ vars.APP_DB_USER || 'oficina_admin' }}
+      SERVERLESS_JWT_ISSUER: ${{ vars.SERVERLESS_JWT_ISSUER || 'oficina-auth-serverless' }}
+      SERVERLESS_JWT_AUDIENCE: ${{ vars.SERVERLESS_JWT_AUDIENCE || 'oficina-backend' }}
+      NEW_RELIC_ENABLED: ${{ vars.NEW_RELIC_ENABLED || 'false' }}
+      NEW_RELIC_APP_NAME: ${{ vars.NEW_RELIC_APP_NAME }}
+      AUTH_BASE_URL: ${{ vars.AUTH_BASE_URL || vars.API_GATEWAY_BASE_URL }}
+      NOTIFICATION_ENDPOINT: ${{ vars.NOTIFICATION_ENDPOINT }}
+      DEPLOY_ENABLED: ${{ vars.DEPLOY_ENABLED || 'false' }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Verificar se o cluster está configurado
-        id: check
-        env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
+      - name: Deployment gate
         run: |
-          if [ -z "${KUBECONFIG_B64}" ]; then
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Secret KUBECONFIG não configurado para o ambiente '${{ inputs.environment }}' — deploy será pulado. Configure o secret no GitHub Environment para habilitar o deploy automático."
-          else
-            echo "present=true" >> "$GITHUB_OUTPUT"
+          if [ "$DEPLOY_ENABLED" != "true" ]; then
+            echo '::error::Deploy bloqueado: DEPLOY_ENABLED deve valer true após a sincronização dos outputs de EKS e RDS.'
+            exit 1
           fi
 
+      - uses: actions/checkout@v4
+        if: env.DEPLOY_ENABLED == 'true'
+
+      - name: Validate required environment configuration
+        if: env.DEPLOY_ENABLED == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          APP_DB_PASSWORD: ${{ secrets.APP_DB_PASSWORD }}
+          APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
+          APP_ADMIN_PASSWORD: ${{ secrets.APP_ADMIN_PASSWORD }}
+          APP_SERVERLESS_JWT_PUBLIC_KEY: ${{ secrets.SERVERLESS_JWT_PUBLIC_KEY }}
+          NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
+          NOTIFICATION_API_KEY: ${{ secrets.NOTIFICATION_API_KEY }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN APP_DB_PASSWORD APP_JWT_SECRET APP_ADMIN_PASSWORD APP_SERVERLESS_JWT_PUBLIC_KEY; do
+            if [ -z "${!name:-}" ]; then missing+=("$name"); fi
+          done
+          for name in EKS_CLUSTER_NAME APP_DB_URL APP_DB_USER AUTH_BASE_URL; do
+            if [ -z "${!name:-}" ]; then missing+=("$name"); fi
+          done
+          if [ "${NEW_RELIC_ENABLED,,}" = "true" ] && [ -z "$NEW_RELIC_LICENSE_KEY" ]; then
+            missing+=("NEW_RELIC_LICENSE_KEY")
+          fi
+          if [ -n "$NOTIFICATION_ENDPOINT" ] && [ -z "$NOTIFICATION_API_KEY" ]; then
+            missing+=("NOTIFICATION_API_KEY")
+          fi
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::error::Configure no GitHub Environment %s: %s\n' '${{ inputs.environment }}' "${missing[*]}"
+            exit 1
+          fi
+
+      - name: Configure AWS Academy credentials
+        if: env.DEPLOY_ENABLED == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Validate AWS session
+        if: env.DEPLOY_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity
+
       - name: Setup kubectl
-        if: steps.check.outputs.present == 'true'
+        if: env.DEPLOY_ENABLED == 'true'
         uses: azure/setup-kubectl@v4
         with:
-          version: 'v1.29.0'
+          version: 'v1.34.0'
 
-      - name: Configurar acesso ao cluster
-        if: steps.check.outputs.present == 'true'
-        env:
-          KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
+      - name: Configure cluster access
+        if: env.DEPLOY_ENABLED == 'true'
+        id: cluster
         run: |
-          mkdir -p "$HOME/.kube"
-          echo "${KUBECONFIG_B64}" | base64 -d > "$HOME/.kube/config"
-          chmod 600 "$HOME/.kube/config"
+          set -euo pipefail
+          aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
           kubectl cluster-info
 
-      - name: Renderizar manifestos para o namespace do ambiente
-        if: steps.check.outputs.present == 'true'
+      - name: Render application manifests
+        if: env.DEPLOY_ENABLED == 'true'
         env:
           TARGET_NS: ${{ inputs.namespace }}
           IMAGE_REF: ${{ inputs.image_ref }}
         run: |
           set -euo pipefail
-          rm -rf rendered && mkdir -p rendered
-          cp k8s/*.yaml rendered/
-          # O Secret é provisionado por ambiente no passo seguinte (não usa o
-          # secret.yaml versionado, que contém apenas credenciais default).
-          rm -f rendered/secret.yaml
-          # Troca o namespace fixo (oficina) pelo namespace do ambiente
+          rm -rf rendered
+          mkdir -p rendered
+          cp k8s/namespace.yaml k8s/app-deployment.yaml k8s/app-service.yaml k8s/hpa.yaml k8s/pdb.yaml rendered/
           sed -i "s|name: oficina$|name: ${TARGET_NS}|" rendered/namespace.yaml
           sed -i "s|namespace: oficina$|namespace: ${TARGET_NS}|" rendered/*.yaml
-          # Aponta a imagem para a build desta execução
           sed -i "s|image: oficina-backend:latest|image: ${IMAGE_REF}|" rendered/app-deployment.yaml
-          echo "Namespace alvo: ${TARGET_NS}"
-          grep -h "image:" rendered/app-deployment.yaml
+          kubectl apply -f rendered/namespace.yaml
 
-      - name: Provisionar Secret do ambiente
-        if: steps.check.outputs.present == 'true'
+      - name: Provision application configuration
+        if: env.DEPLOY_ENABLED == 'true'
         env:
           TARGET_NS: ${{ inputs.namespace }}
-          ENVIRONMENT: ${{ inputs.environment }}
           APP_DB_PASSWORD: ${{ secrets.APP_DB_PASSWORD }}
           APP_JWT_SECRET: ${{ secrets.APP_JWT_SECRET }}
           APP_ADMIN_PASSWORD: ${{ secrets.APP_ADMIN_PASSWORD }}
+          APP_SERVERLESS_JWT_PUBLIC_KEY: ${{ secrets.SERVERLESS_JWT_PUBLIC_KEY }}
+          NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
+          NOTIFICATION_API_KEY: ${{ secrets.NOTIFICATION_API_KEY }}
         run: |
           set -euo pipefail
-          # Garante o namespace antes de criar o Secret
-          kubectl apply -f rendered/namespace.yaml
-          if [ -n "${APP_DB_PASSWORD}" ] && [ -n "${APP_JWT_SECRET}" ] && [ -n "${APP_ADMIN_PASSWORD}" ]; then
-            echo "Criando Secret a partir dos secrets do GitHub Environment '${ENVIRONMENT}'"
-            kubectl create secret generic oficina-secrets \
-              --namespace "${TARGET_NS}" \
-              --from-literal=DB_PASSWORD="${APP_DB_PASSWORD}" \
-              --from-literal=JWT_SECRET="${APP_JWT_SECRET}" \
-              --from-literal=ADMIN_PASSWORD="${APP_ADMIN_PASSWORD}" \
-              --dry-run=client -o yaml | kubectl apply -f -
-          elif [ "${ENVIRONMENT}" = "production" ]; then
-            echo "::error::Secrets de produção não configurados. Defina APP_DB_PASSWORD, APP_JWT_SECRET e APP_ADMIN_PASSWORD no GitHub Environment 'production'."
-            exit 1
-          else
-            echo "::warning::Secrets do ambiente não definidos — usando credenciais default de k8s/secret.yaml (apenas para STG/homologação; NÃO usar em produção)."
-            sed "s|namespace: oficina$|namespace: ${TARGET_NS}|" k8s/secret.yaml | kubectl apply -f -
-          fi
+          nr_enabled="${NEW_RELIC_ENABLED,,}"
+          if [ "$nr_enabled" != "true" ]; then nr_enabled=false; fi
+          nr_app_name="${NEW_RELIC_APP_NAME:-oficina-backend-${{ inputs.environment }}}"
+          notification_type=log
+          if [ -n "$NOTIFICATION_ENDPOINT" ]; then notification_type=serverless; fi
+          kubectl create configmap oficina-config \
+            --namespace "$TARGET_NS" \
+            --from-literal=DB_URL="$APP_DB_URL" \
+            --from-literal=DB_USER="$APP_DB_USER" \
+            --from-literal=SERVER_PORT=8080 \
+            --from-literal=SPRING_PROFILES_ACTIVE=prod \
+            --from-literal=OFICINA_ENVIRONMENT='${{ inputs.environment }}' \
+            --from-literal=ADMIN_EMAIL=admin@oficina.local \
+            --from-literal=AUTH_BASE_URL="$AUTH_BASE_URL" \
+            --from-literal=NOTIFICACAO_TIPO="$notification_type" \
+            --from-literal=NOTIFICATION_ENDPOINT="$NOTIFICATION_ENDPOINT" \
+            --from-literal=SERVERLESS_JWT_ISSUER="$SERVERLESS_JWT_ISSUER" \
+            --from-literal=SERVERLESS_JWT_AUDIENCE="$SERVERLESS_JWT_AUDIENCE" \
+            --from-literal=JAVA_TOOL_OPTIONS=-javaagent:/opt/newrelic/newrelic.jar \
+            --from-literal=NEW_RELIC_AGENT_ENABLED="$nr_enabled" \
+            --from-literal=NEW_RELIC_APP_NAME="$nr_app_name" \
+            --from-literal=NEW_RELIC_DISTRIBUTED_TRACING_ENABLED=true \
+            --from-literal=NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED=false \
+            --from-literal=NEW_RELIC_APPLICATION_LOGGING_LOCAL_DECORATING_ENABLED=true \
+            --from-literal=NEW_RELIC_LOG_FILE_NAME=STDOUT \
+            --from-literal=NEW_RELIC_LABELS="environment:${{ inputs.environment }};service:oficina-backend" \
+            --from-literal=OFICINA_OBSERVABILITY_NEW_RELIC_ENABLED="$nr_enabled" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret generic oficina-secrets \
+            --namespace "$TARGET_NS" \
+            --from-literal=DB_PASSWORD="$APP_DB_PASSWORD" \
+            --from-literal=JWT_SECRET="$APP_JWT_SECRET" \
+            --from-literal=ADMIN_PASSWORD="$APP_ADMIN_PASSWORD" \
+            --from-literal=SERVERLESS_JWT_PUBLIC_KEY="$APP_SERVERLESS_JWT_PUBLIC_KEY" \
+            --from-literal=NEW_RELIC_LICENSE_KEY="$NEW_RELIC_LICENSE_KEY" \
+            --from-literal=NOTIFICATION_API_KEY="$NOTIFICATION_API_KEY" \
+            --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Aplicar manifestos (namespace, config, banco e aplicação)
-        if: steps.check.outputs.present == 'true'
-        run: kubectl apply -f rendered/
+      - name: Apply application manifests
+        if: env.DEPLOY_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          kubectl apply -f rendered/app-deployment.yaml
+          kubectl apply -f rendered/app-service.yaml
+          kubectl apply -f rendered/hpa.yaml
+          kubectl apply -f rendered/pdb.yaml
 
-      - name: Aguardar rollout do banco de dados
-        if: steps.check.outputs.present == 'true'
-        run: kubectl rollout status deployment/oficina-db -n "${{ inputs.namespace }}" --timeout=120s
+      - name: Restart application after configuration update
+        if: env.DEPLOY_ENABLED == 'true'
+        run: kubectl rollout restart deployment/oficina-app -n "${{ inputs.namespace }}"
 
-      - name: Aguardar rollout da aplicação
-        if: steps.check.outputs.present == 'true'
-        run: kubectl rollout status deployment/oficina-app -n "${{ inputs.namespace }}" --timeout=180s
+      - name: Wait for application rollout
+        if: env.DEPLOY_ENABLED == 'true'
+        run: kubectl rollout status deployment/oficina-app -n "${{ inputs.namespace }}" --timeout=900s
 
-      - name: Smoke test (/actuator/health)
-        if: steps.check.outputs.present == 'true'
+      - name: Smoke test
+        if: env.DEPLOY_ENABLED == 'true'
         run: |
           set -euo pipefail
           kubectl -n "${{ inputs.namespace }}" run smoke-${{ github.run_id }} \
             --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet \
-            --command -- curl -fsS http://oficina-app/actuator/health
-          echo "Smoke test OK"
+            --command -- curl -fsS http://oficina-app/actuator/health/readiness
 
-      - name: Resumo do deploy
-        if: steps.check.outputs.present == 'true'
+      - name: Collect diagnostics on failure
+        if: env.DEPLOY_ENABLED == 'true' && failure() && steps.cluster.outcome == 'success'
+        run: |
+          kubectl get deployment,pods,svc,hpa -n "${{ inputs.namespace }}" || true
+          kubectl describe deployment/oficina-app -n "${{ inputs.namespace }}" || true
+
+      - name: Deployment summary
+        if: env.DEPLOY_ENABLED == 'true' && success()
         run: |
           {
-            echo "### Deploy em '${{ inputs.environment }}' :rocket:"
+            echo "### Deploy em '${{ inputs.environment }}'"
             echo "- Namespace: \`${{ inputs.namespace }}\`"
             echo "- Imagem: \`${{ inputs.image_ref }}\`"
+            echo "- New Relic: \`${NEW_RELIC_ENABLED}\`"
           } >> "$GITHUB_STEP_SUMMARY"
           kubectl get pods,svc,hpa -n "${{ inputs.namespace }}"

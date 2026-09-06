@@ -1,5 +1,8 @@
 package br.com.oficina.adapter.controller;
 
+import br.com.oficina.adapter.dto.LancamentoResponse;
+import br.com.oficina.adapter.dto.OrdemServicoResponse;
+import br.com.oficina.adapter.dto.TempoMedioPorOsResponse;
 import br.com.oficina.domain.enums.StatusOrdemServico;
 import br.com.oficina.domain.enums.TipoItem;
 import br.com.oficina.domain.model.Cliente;
@@ -10,10 +13,6 @@ import br.com.oficina.domain.model.OrdemServico;
 import br.com.oficina.domain.model.Peca;
 import br.com.oficina.domain.model.Servico;
 import br.com.oficina.domain.model.Veiculo;
-import br.com.oficina.adapter.dto.LancamentoResponse;
-import br.com.oficina.adapter.dto.OrdemServicoResponse;
-import br.com.oficina.adapter.dto.TempoMedioPorOsResponse;
-import br.com.oficina.usecase.gateway.RelatorioGateway;
 import br.com.oficina.usecase.ClienteServiceImpl;
 import br.com.oficina.usecase.EstoqueServiceImpl;
 import br.com.oficina.usecase.FinanceiroServiceImpl;
@@ -22,6 +21,7 @@ import br.com.oficina.usecase.OrdemServicoServiceImpl;
 import br.com.oficina.usecase.PecaServiceImpl;
 import br.com.oficina.usecase.ServicoServiceImpl;
 import br.com.oficina.usecase.VeiculoServiceImpl;
+import br.com.oficina.usecase.gateway.RelatorioGateway;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -430,10 +430,10 @@ public class AdministrativoOficinaController {
               allowableValues = {"SERVICO", "PECA"})
           @NotNull
           TipoItem tipo,
-      @Schema(description = "Quantidade (>= 1).", example = "1") @NotNull @Min(1) Integer quantidade,
+      @Schema(description = "Quantidade (>= 1).", example = "1") @NotNull @Min(1)
+          Integer quantidade,
       @Schema(
-              description =
-                  "Preço unitário (opcional, usa preço do catálogo se omitido).",
+              description = "Preço unitário (opcional, usa preço do catálogo se omitido).",
               example = "100.00")
           BigDecimal precoUnitario) {}
 
@@ -706,8 +706,7 @@ public class AdministrativoOficinaController {
                         new OrdemServicoServiceImpl.ItemAbertura(
                             i.idServicoSku(), i.tipo(), i.quantidade(), i.precoUnitario()))
                 .toList();
-    OrdemServico os =
-        osService.abrir(req.idCliente(), req.placa(), req.descricaoProblema(), itens);
+    OrdemServico os = osService.abrir(req.idCliente(), req.placa(), req.descricaoProblema(), itens);
     return ResponseEntity.status(HttpStatus.CREATED).body(OrdemServicoResponse.de(os));
   }
 

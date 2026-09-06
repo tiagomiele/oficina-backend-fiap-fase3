@@ -18,10 +18,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
-  private final JwtTokenService tokens;
+  private final JwtTokenService internalTokens;
+  private final ServerlessJwtVerifier serverlessTokens;
 
-  public JwtAuthenticationFilter(JwtTokenService tokens) {
-    this.tokens = tokens;
+  public JwtAuthenticationFilter(
+      JwtTokenService internalTokens, ServerlessJwtVerifier serverlessTokens) {
+    this.internalTokens = internalTokens;
+    this.serverlessTokens = serverlessTokens;
   }
 
   @Override
@@ -30,24 +33,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       throws ServletException, IOException {
     String auth = request.getHeader("Authorization");
     if (auth != null && auth.startsWith("Bearer ")) {
-      String token = auth.substring(7);
       try {
-        Claims claims = tokens.parse(token);
-        AuthenticatedPrincipal principal =
-            new AuthenticatedPrincipal(
-                UUID.fromString(claims.getSubject()),
-                claims.get("email", String.class),
-                tokens.papelDe(claims));
-        UsernamePasswordAuthenticationToken token2 =
+        AuthenticatedPrincipal principal = authenticate(auth.substring(7));
+        UsernamePasswordAuthenticationToken authentication =
             new UsernamePasswordAuthenticationToken(
-                principal,
-                null,
-                List.of(new SimpleGrantedAuthority("ROLE_" + principal.papel().name())));
-        SecurityContextHolder.getContext().setAuthentication(token2);
-      } catch (JwtException | IllegalArgumentException e) {
+                principal, null, List.of(new SimpleGrantedAuthority("ROLE_" + principal.role())));
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+      } catch (RuntimeException exception) {
         SecurityContextHolder.clearContext();
       }
     }
     chain.doFilter(request, response);
+  }
+
+  private AuthenticatedPrincipal authenticate(String token) {
+    try {
+      Claims claims = internalTokens.parse(token);
+      var role = internalTokens.papelDe(claims);
+      UUID.fromString(claims.getSubject());
+      return new AuthenticatedPrincipal(
+          claims.getSubject(), claims.get("email", String.class), role.name(), null);
+    } catch (JwtException | IllegalArgumentException exception) {
+      return serverlessTokens.verify(token);
+    }
   }
 }

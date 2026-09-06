@@ -1,5 +1,6 @@
 package br.com.oficina.usecase;
 
+import br.com.oficina.domain.exception.BusinessException;
 import br.com.oficina.domain.model.Dinheiro;
 import br.com.oficina.domain.model.Documento;
 import br.com.oficina.domain.model.ItemNotaFiscalFornecedor;
@@ -7,7 +8,6 @@ import br.com.oficina.domain.model.NotaFiscalFornecedor;
 import br.com.oficina.domain.model.NotaFiscalFornecedorId;
 import br.com.oficina.usecase.gateway.NotaFiscalFornecedorRepository;
 import br.com.oficina.usecase.gateway.PecaRepository;
-import br.com.oficina.domain.exception.BusinessException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;

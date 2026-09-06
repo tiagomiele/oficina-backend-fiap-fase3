@@ -73,12 +73,22 @@ springdoc:
     operationsSorter: __OFICINA_OPERATIONS_SORTER__
 
 oficina:
+  environment: ${OFICINA_ENVIRONMENT:local}
+  observability:
+    new-relic:
+      enabled: ${OFICINA_OBSERVABILITY_NEW_RELIC_ENABLED:false}
   security:
     jwt:
       secret: ${JWT_SECRET:change-me-in-production-at-least-32-chars-long-please}
       issuer: oficina-backend
       access-token-ttl-minutes: 15
       refresh-token-ttl-days: 7
+    serverless-jwt:
+      public-key: ${SERVERLESS_JWT_PUBLIC_KEY:}
+      issuer: ${SERVERLESS_JWT_ISSUER:oficina-auth-serverless}
+      audience: ${SERVERLESS_JWT_AUDIENCE:oficina-backend}
+    serverless-auth:
+      base-url: ${AUTH_BASE_URL:}
     rate-limit:
       login-per-minute: 10
       public-per-minute: 30
@@ -87,6 +97,9 @@ oficina:
       email: ${ADMIN_EMAIL:admin@oficina.local}
       password: ${ADMIN_PASSWORD:admin123}
   notificacao:
-    # log (default) escreve no log; smtp envia e-mail real via spring.mail.*
+    # log (default), smtp ou serverless
     tipo: ${NOTIFICACAO_TIPO:log}
     remetente: ${NOTIFICACAO_REMETENTE:nao-responder@oficina.local}
+    serverless:
+      endpoint: ${NOTIFICATION_ENDPOINT:}
+      api-key: ${NOTIFICATION_API_KEY:}

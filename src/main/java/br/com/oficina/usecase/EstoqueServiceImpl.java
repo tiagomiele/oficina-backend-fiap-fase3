@@ -1,10 +1,10 @@
 package br.com.oficina.usecase;
 
+import br.com.oficina.domain.exception.BusinessException;
 import br.com.oficina.domain.model.EstoquePeca;
 import br.com.oficina.domain.model.MovimentacaoEstoque;
 import br.com.oficina.usecase.gateway.EstoqueRepository;
 import br.com.oficina.usecase.gateway.PecaRepository;
-import br.com.oficina.domain.exception.BusinessException;
 import java.time.LocalDate;
 import java.util.List;
 import org.springframework.stereotype.Service;

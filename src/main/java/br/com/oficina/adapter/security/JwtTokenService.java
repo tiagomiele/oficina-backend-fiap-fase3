@@ -1,9 +1,8 @@
 package br.com.oficina.adapter.security;
 
-import br.com.oficina.usecase.gateway.TokenGateway;
-import br.com.oficina.adapter.security.JwtProperties;
 import br.com.oficina.domain.enums.Papel;
 import br.com.oficina.domain.model.User;
+import br.com.oficina.usecase.gateway.TokenGateway;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -58,7 +57,12 @@ public class JwtTokenService implements TokenGateway {
   }
 
   public Claims parse(String token) {
-    return Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
+    return Jwts.parser()
+        .verifyWith(key)
+        .requireIssuer(props.issuer())
+        .build()
+        .parseSignedClaims(token)
+        .getPayload();
   }
 
   public Papel papelDe(Claims claims) {
