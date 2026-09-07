@@ -91,7 +91,7 @@ O perfil é determinado pelo cadastro, nunca pelo request de login. Configure `A
 
 O `verify` executa testes unitários, testes de integração, ArchUnit e o gate de cobertura JaCoCo do domínio.
 
-No GitHub Actions, o CI apresenta quatro jobs sequenciais: `Repository validation → Build, test & coverage → SBOM → Security scan`. O CD já permanece linear: validação da aplicação → build/publicação da imagem → deploy do ambiente correspondente. Pull Requests não executam deploy.
+No GitHub Actions, o CI apresenta quatro jobs sequenciais: `Repository validation → Build, test & coverage → SBOM → Security scan`. O CD permanece linear: validação da aplicação → build/publicação da imagem → deploy → smoke test → captura e sincronização do LoadBalancer. Pull Requests não executam deploy.
 
 ## Preparar homologação ou produção
 
@@ -103,7 +103,7 @@ Com os quatro repositórios clonados como diretórios irmãos, copie o bloco `[d
 .\scripts\configure-environment.ps1 -Environment production
 ```
 
-O script cria/configura o projeto e os oito workspaces HCP, renova AWS CLI, Variable Set e GitHub Environments, preserva secrets fora do Git e sincroniza outputs consultando diretamente o state atual pela API do HCP Terraform. No AWS Academy, omita `-EnableSesDelivery` e `-CreateSesIdentity`: a notificação permanece assíncrona, usa log técnico sem PII e não solicita nem persiste e-mail remetente. Em uma conta com identidade SES verificada, use `-EnableSesDelivery` e informe o remetente; acrescente `-CreateSesIdentity` somente se a role puder solicitar a verificação. A chave técnica é gerada e reutilizada automaticamente. Após o apply do RDS, use `-RequireBackendDeployReady` para exigir os outputs do EKS/RDS e confirmar `DEPLOY_ENABLED=true` antes do CD. Produção recebe por padrão RDS Multi-AZ, proteção contra exclusão e snapshot final; `-UseAwsAcademyDisposableProductionProfile` é um override explícito, sem HA, somente para demonstração descartável. O script não executa apply ou deploy. Consulte o [guia geral](docs/validation/general-project.md).
+O script cria/configura o projeto e os oito workspaces HCP, renova AWS CLI, Variable Set e GitHub Environments, preserva secrets fora do Git e prepara as credenciais consumidas pelos workflows. Kubernetes, Database, Auth e Backend sincronizam seus próprios outputs automaticamente após cada deploy. No AWS Academy, omita `-EnableSesDelivery` e `-CreateSesIdentity`: a notificação permanece assíncrona, usa log técnico sem PII e não solicita nem persiste e-mail remetente. Em uma conta com identidade SES verificada, use `-EnableSesDelivery` e informe o remetente; acrescente `-CreateSesIdentity` somente se a role puder solicitar a verificação. A chave técnica é gerada e reutilizada automaticamente. Após o apply do RDS, use `-RequireBackendDeployReady` para exigir os outputs do EKS/RDS e confirmar `DEPLOY_ENABLED=true` antes do CD. Produção recebe por padrão RDS Multi-AZ, proteção contra exclusão e snapshot final; `-UseAwsAcademyDisposableProductionProfile` é um override explícito, sem HA, somente para demonstração descartável. O script não executa apply ou deploy. Consulte o [guia geral](docs/validation/general-project.md).
 
 ## Documentação
 

@@ -1193,6 +1193,10 @@ if (-not $SkipGitHub) {
 
         Set-GitHubVariable -Repository $RepositoryNames.Kubernetes -EnvironmentName $targetEnvironment -Name TF_WORKSPACE_OBSERVABILITY_HOMOLOG -Value $WorkspaceNames.NewRelic.homolog
         Set-GitHubVariable -Repository $RepositoryNames.Kubernetes -EnvironmentName $targetEnvironment -Name TF_WORKSPACE_OBSERVABILITY_PRODUCTION -Value $WorkspaceNames.NewRelic.production
+        Set-GitHubSecret -Repository $RepositoryNames.Backend -EnvironmentName $targetEnvironment -Name TF_API_TOKEN -Value $terraformToken
+        Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $targetEnvironment -Name TF_CLOUD_ORGANIZATION -Value $TerraformOrganization
+        Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $targetEnvironment -Name TF_WORKSPACE_AUTH -Value $WorkspaceNames.Auth[$targetEnvironment]
+        Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $targetEnvironment -Name TF_WORKSPACE_OBSERVABILITY -Value $WorkspaceNames.NewRelic[$targetEnvironment]
         Set-GitHubVariable -Repository $RepositoryNames.Kubernetes -EnvironmentName $targetEnvironment -Name CLUSTER_NAME -Value "oficina-$targetEnvironment"
         Set-GitHubVariable -Repository $RepositoryNames.Kubernetes -EnvironmentName $targetEnvironment -Name APP_NAMESPACE -Value "oficina-$targetEnvironment"
         Set-GitHubVariable -Repository $RepositoryNames.Kubernetes -EnvironmentName $targetEnvironment -Name SYNTHETIC_MONITOR_ENABLED -Value 'false'

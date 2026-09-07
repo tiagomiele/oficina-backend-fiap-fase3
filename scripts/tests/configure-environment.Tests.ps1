@@ -72,6 +72,16 @@ foreach ($planEnvironmentSetting in @(
     }
 }
 
+foreach ($backendSynchronizationSetting in @(
+    'Set-GitHubSecret -Repository $RepositoryNames.Backend -EnvironmentName $targetEnvironment -Name TF_API_TOKEN',
+    'Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $targetEnvironment -Name TF_WORKSPACE_AUTH',
+    'Set-GitHubVariable -Repository $RepositoryNames.Backend -EnvironmentName $targetEnvironment -Name TF_WORKSPACE_OBSERVABILITY'
+)) {
+    if (-not $sourceText.Contains($backendSynchronizationSetting)) {
+        throw "Backend synchronization setting not found: $backendSynchronizationSetting"
+    }
+}
+
 foreach ($legacyEnvironmentSetting in @(
     '$authApplyEnvironment = "$targetEnvironment-apply"'
 )) {
