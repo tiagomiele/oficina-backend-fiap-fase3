@@ -63,7 +63,7 @@ jobs:
           NOTIFICATION_API_KEY: ${{ secrets.NOTIFICATION_API_KEY }}
           TF_API_TOKEN: ${{ secrets.TF_API_TOKEN }}
           GITHUB_SYNC_TOKEN: ${{ secrets.GITHUB_SYNC_TOKEN }}
-          SYNC_APP_ID: ${{ vars.SYNC_APP_ID }}
+          SYNC_APP_CLIENT_ID: ${{ vars.SYNC_APP_CLIENT_ID }}
           SYNC_APP_PRIVATE_KEY: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
         run: |
           set -euo pipefail
@@ -74,8 +74,8 @@ jobs:
           for name in EKS_CLUSTER_NAME APP_DB_URL APP_DB_USER AUTH_BASE_URL TF_CLOUD_ORGANIZATION TF_WORKSPACE_AUTH TF_WORKSPACE_OBSERVABILITY; do
             if [ -z "${!name:-}" ]; then missing+=("$name"); fi
           done
-          if [ -z "$GITHUB_SYNC_TOKEN" ] && { [ -z "$SYNC_APP_ID" ] || [ -z "$SYNC_APP_PRIVATE_KEY" ]; }; then
-            missing+=("GITHUB_SYNC_TOKEN ou SYNC_APP_ID+SYNC_APP_PRIVATE_KEY")
+          if [ -z "$GITHUB_SYNC_TOKEN" ] && { [ -z "$SYNC_APP_CLIENT_ID" ] || [ -z "$SYNC_APP_PRIVATE_KEY" ]; }; then
+            missing+=("GITHUB_SYNC_TOKEN ou SYNC_APP_CLIENT_ID+SYNC_APP_PRIVATE_KEY")
           fi
           if [ "${NEW_RELIC_ENABLED,,}" = "true" ] && [ -z "$NEW_RELIC_LICENSE_KEY" ]; then
             missing+=("NEW_RELIC_LICENSE_KEY")
@@ -231,11 +231,11 @@ jobs:
           echo "value=http://${backend_host}" >> "$GITHUB_OUTPUT"
 
       - name: Generate GitHub App synchronization token
-        if: env.DEPLOY_ENABLED == 'true' && vars.SYNC_APP_ID != ''
+        if: env.DEPLOY_ENABLED == 'true' && vars.SYNC_APP_CLIENT_ID != ''
         id: sync-app-token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
-          app-id: ${{ vars.SYNC_APP_ID }}
+          client-id: ${{ vars.SYNC_APP_CLIENT_ID }}
           private-key: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: oficina-backend-fiap-fase3,oficina-kubernetes-infra-fiap-fase3

@@ -1498,7 +1498,7 @@ Permanece uma configuração humana única, pois ela é uma regra de governança
 
 `TF_APPLY_ENABLED=true` e `ENABLE_TERRAFORM_APPLY=true` são sincronizados pelo script. Pull Requests executam plan sem apply; merges em `homolog` aplicam automaticamente; merges em `main` aguardam uma única aprovação em `production`. Destroy permanece manual fora do GitHub Actions.
 
-A GitHub App de sincronização deve ter somente a permissão **Environments: read and write** e estar instalada nos repositórios Backend e Kubernetes. Configure `SYNC_APP_ID` como variable e `SYNC_APP_PRIVATE_KEY` como secret no nível do repositório Backend. O token gerado pelo workflow é limitado a esses dois repositórios e revogado ao final do job; `GITHUB_SYNC_TOKEN` permanece apenas como contingência temporária.
+A GitHub App de sincronização deve ter somente a permissão **Environments: read and write** e estar instalada nos repositórios Backend e Kubernetes. Configure o Client ID da GitHub App como variable `SYNC_APP_CLIENT_ID` e a chave privada como secret `SYNC_APP_PRIVATE_KEY` no nível do repositório Backend. O token gerado pelo workflow é limitado a esses dois repositórios e revogado ao final do job; `GITHUB_SYNC_TOKEN` permanece apenas como contingência temporária.
 
 ## 27. Configurar observabilidade do RDS
 
