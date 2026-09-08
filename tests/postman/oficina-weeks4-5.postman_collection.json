@@ -653,8 +653,11 @@
                 "exec": [
                   "pm.test('resposta nao revela propriedade da OS', () => {",
                   "  pm.response.to.have.status(404);",
+                  "  const error = pm.response.json();",
+                  "  pm.expect(error.codigo).to.equal('OS_NAO_ENCONTRADA');",
+                  "  pm.expect(error.mensagem).to.equal('Ordem de serviço não encontrada');",
+                  "  pm.expect(error.detalhes).to.be.an('array').that.is.empty;",
                   "  pm.expect(pm.response.text()).not.to.include(pm.collectionVariables.get('ownerCpf'));",
-                  "  pm.expect(pm.response.text()).not.to.include(String(pm.collectionVariables.get('ownerClientId')));",
                   "});"
                 ]
               }

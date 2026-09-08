@@ -103,3 +103,5 @@ oficina:
     serverless:
       endpoint: ${NOTIFICATION_ENDPOINT:}
       api-key: ${NOTIFICATION_API_KEY:}
+      connect-timeout: ${NOTIFICATION_CONNECT_TIMEOUT:2s}
+      read-timeout: ${NOTIFICATION_READ_TIMEOUT:12s}

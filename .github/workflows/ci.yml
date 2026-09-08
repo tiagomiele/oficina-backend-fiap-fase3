@@ -33,6 +33,9 @@ jobs:
         shell: pwsh
         run: ./scripts/tests/configure-environment.Tests.ps1
 
+      - name: Test Backend output synchronization
+        run: python3 -m unittest tests/test_sync_backend_outputs.py
+
   build:
     name: Build, test & coverage
     needs: repository-validation

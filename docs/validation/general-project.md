@@ -229,20 +229,16 @@ Considere a preparação aprovada somente quando o comando terminar com código 
 
 ### 3.3 Sincronização idempotente de outputs
 
-Reexecute o mesmo comando, sem copiar IDs, após cada marco:
+O script central continua responsável pelo bootstrap e pela renovação das credenciais temporárias do AWS Academy. A propagação dos outputs ocorre automaticamente no workflow do projeto que produziu cada valor:
 
-```powershell
-.\scripts\configure-environment.ps1 -Environment homolog
-```
-
-| Depois de | O script propaga |
+| Depois de | O workflow propaga |
 |---|---|
-| apply do Kubernetes | VPC, subnets privadas e security group para banco e autenticação |
-| apply do RDS | URL JDBC e credenciais para autenticação e backend |
-| deploy do backend | URL do LoadBalancer para autenticação, health check e backend |
-| apply da autenticação | URL do API Gateway para o backend |
+| apply do Kubernetes | VPC, subnets privadas e security group para Database e Auth |
+| apply do RDS | URL JDBC para Auth e Backend |
+| apply da autenticação | URLs do API Gateway para o Backend |
+| deploy do Backend | URL do LoadBalancer para Auth, Backend e New Relic |
 
-Se um output ainda não existir, o script emite aviso e preserva o restante da configuração. Ele não inventa IDs nem usa valores de uma sessão anterior. A leitura é feita pelo identificador do workspace e da versão atual do state na API do HCP, sem depender do checkout, cache de providers ou seleção local do Terraform CLI.
+Cada rotina valida os valores, atualiza HCP/GitHub de forma idempotente e falha o próprio run se a entrega ao consumidor não for confirmada. Não reexecute `configure-environment.ps1` somente para sincronizar outputs; use-o quando a sessão AWS Academy mudar ou quando for necessário restaurar a configuração base.
 
 O GitHub Environment do backend permanece com `DEPLOY_ENABLED=false` enquanto os outputs de EKS e RDS não estiverem disponíveis. Nesse estado, merges continuam validando e publicando a imagem, mas o job de deploy falha no gate inicial sem tentar acessar o cluster. Quando ambos os states estiverem prontos, o mesmo script grava os valores reais, relê a variável no GitHub e altera `DEPLOY_ENABLED=true` automaticamente.
 
@@ -655,7 +651,8 @@ Resultado esperado:
 - ConfigMap `oficina-config` criado;
 - Secret `oficina-secrets` criado;
 - deployment com rollout concluído;
-- smoke test `/actuator/health` aprovado.
+- smoke test `/actuator/health` aprovado;
+- URL pública capturada e sincronizada com Auth, Backend e New Relic.
 
 Se aparecer `ExpiredToken`, renove os três secrets AWS no GitHub Environment e execute novamente o workflow.
 
@@ -696,13 +693,7 @@ Resultado esperado:
 status : UP
 ```
 
-Use a URL sem `/` no final. Sincronize-a automaticamente:
-
-```powershell
-Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
-.\scripts\configure-environment.ps1 -Environment homolog
-. C:\fiap-secrets\oficina-homolog\environment-context.ps1
-```
+Use a URL sem `/` no final. O job `Deploy HOMOLOG` já captura esse endereço após o smoke test e executa `scripts/sync-backend-outputs.py`; nenhuma sincronização manual é necessária. O run deve registrar `Generate GitHub App synchronization token` e `Synchronize Backend URL with Auth and New Relic` como aprovados.
 
 ---
 
@@ -936,14 +927,9 @@ Resultados esperados: `EM_DIAGNOSTICO` e depois `AGUARDANDO_APROVACAO`.
 
 ## 16. Configurar o workspace da autenticação
 
-Não abra o formulário de variáveis para copiar outputs ou chaves. Reexecute o script central depois do Kubernetes, RDS e backend:
+Não abra o formulário de variáveis para copiar outputs ou chaves. Os workflows de Kubernetes, Database e Backend atualizam o workspace Auth automaticamente. O script central permanece responsável somente pela configuração base e pelas credenciais estáveis.
 
-```powershell
-Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
-.\scripts\configure-environment.ps1 -Environment homolog
-```
-
-Ele configura automaticamente:
+O fluxo configura automaticamente:
 
 - credenciais AWS pelo Variable Set compartilhado;
 - `environment`;
@@ -1432,9 +1418,9 @@ for ($attempt = 1; $attempt -le 30 -and [string]::IsNullOrWhiteSpace($backendHos
 }
 if ([string]::IsNullOrWhiteSpace($backendHost)) { throw 'LoadBalancer de produção sem hostname após cinco minutos.' }
 Invoke-RestMethod -Method Get -Uri "http://$backendHost/actuator/health"
-Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
-.\scripts\configure-environment.ps1 -Environment production
 ```
+
+O próprio `Deploy PRODUÇÃO` sincroniza o LoadBalancer depois do smoke test. Confirme os steps de geração do token temporário e sincronização antes de reaplicar Auth e observabilidade.
 
 #### 24.1.4 Autenticação de produção
 
@@ -1491,7 +1477,7 @@ Set-Location C:\fiap-fase3\oficina-backend-fiap-fase3
 
 O script configura o workspace de observabilidade, a autenticação, o backend e o Kubernetes sem imprimir as chaves. Repita com `-Environment production` para manter secrets e nomes separados.
 
-O monitor sintético permanece desativado enquanto a URL pública não existir. Quando o LoadBalancer responder, o script sincroniza `HEALTH_CHECK_URL` e ativa o monitor automaticamente.
+O monitor sintético permanece desativado enquanto a URL pública não existir. Quando o LoadBalancer responder, o workflow do Backend sincroniza `HEALTH_CHECK_URL`, atualiza o workspace New Relic e ativa o monitor automaticamente; o próximo deploy do Kubernetes aplica essa configuração.
 
 ## 26. Configurar os GitHub Environments para deploy controlado
 
@@ -1511,6 +1497,8 @@ Permanece uma configuração humana única, pois ela é uma regra de governança
 3. limite produção à branch `main` e homologação à branch `homolog`.
 
 `TF_APPLY_ENABLED=true` e `ENABLE_TERRAFORM_APPLY=true` são sincronizados pelo script. Pull Requests executam plan sem apply; merges em `homolog` aplicam automaticamente; merges em `main` aguardam uma única aprovação em `production`. Destroy permanece manual fora do GitHub Actions.
+
+A GitHub App de sincronização deve ter somente a permissão **Environments: read and write** e estar instalada nos repositórios Backend e Kubernetes. Configure o Client ID da GitHub App como variable `SYNC_APP_CLIENT_ID` e a chave privada como secret `SYNC_APP_PRIVATE_KEY` no nível do repositório Backend. O token gerado pelo workflow é limitado a esses dois repositórios e revogado ao final do job; `GITHUB_SYNC_TOKEN` permanece apenas como contingência temporária.
 
 ## 27. Configurar observabilidade do RDS
 

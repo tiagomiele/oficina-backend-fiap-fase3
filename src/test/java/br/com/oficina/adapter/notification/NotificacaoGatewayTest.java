@@ -11,15 +11,20 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import br.com.oficina.usecase.gateway.NotificacaoGateway;
 import br.com.oficina.usecase.gateway.ObservabilidadeGateway;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.convert.ApplicationConversionService;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.http.HttpMethod;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
@@ -69,7 +74,11 @@ class NotificacaoGatewayTest {
         .andRespond(withSuccess());
     ServerlessNotificacaoGateway gateway =
         new ServerlessNotificacaoGateway(
-            builder, observabilidade, "https://notifications.example.com", "secret-key");
+            builder
+                .baseUrl("https://notifications.example.com")
+                .defaultHeader("X-Notification-Key", "secret-key")
+                .build(),
+            observabilidade);
 
     gateway.enviar("cliente@example.com", "OS 2026-000001", "Status atualizado");
 
@@ -86,7 +95,11 @@ class NotificacaoGatewayTest {
         .andRespond(withServerError());
     ServerlessNotificacaoGateway gateway =
         new ServerlessNotificacaoGateway(
-            builder, observabilidade, "https://notifications.example.com", "secret-key");
+            builder
+                .baseUrl("https://notifications.example.com")
+                .defaultHeader("X-Notification-Key", "secret-key")
+                .build(),
+            observabilidade);
 
     gateway.enviar("cliente@example.com", "OS 2026-000001", "Status atualizado");
 
@@ -94,6 +107,34 @@ class NotificacaoGatewayTest {
         .integracaoExternaFalhou(
             "serverless-notification", "enfileirar-notificacao", "InternalServerError");
     server.verify();
+  }
+
+  @Test
+  void notificacaoServerlessNaoBloqueiaFluxoPrincipal() throws NoSuchMethodException {
+    assertThat(
+            AnnotatedElementUtils.findMergedAnnotation(
+                ServerlessNotificacaoGateway.class.getMethod(
+                    "enviar", String.class, String.class, String.class),
+                Async.class))
+        .isNotNull();
+  }
+
+  @Test
+  void contextoServerlessInstanciaGatewayComConstrutorDeProducao() {
+    new ApplicationContextRunner()
+        .withInitializer(
+            context ->
+                context
+                    .getBeanFactory()
+                    .setConversionService(ApplicationConversionService.getSharedInstance()))
+        .withBean(RestClient.Builder.class, RestClient::builder)
+        .withBean(ObservabilidadeGateway.class, () -> mock(ObservabilidadeGateway.class))
+        .withPropertyValues(
+            "oficina.notificacao.tipo=serverless",
+            "oficina.notificacao.serverless.endpoint=https://notifications.example.com",
+            "oficina.notificacao.serverless.api-key=secret-key")
+        .withUserConfiguration(ServerlessNotificacaoGateway.class)
+        .run(context -> assertThat(context).hasSingleBean(NotificacaoGateway.class));
   }
 
   @Test

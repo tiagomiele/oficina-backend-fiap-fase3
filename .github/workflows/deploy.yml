@@ -35,6 +35,9 @@ jobs:
       AUTH_BASE_URL: ${{ vars.AUTH_BASE_URL || vars.API_GATEWAY_BASE_URL }}
       NOTIFICATION_ENDPOINT: ${{ vars.NOTIFICATION_ENDPOINT }}
       DEPLOY_ENABLED: ${{ vars.DEPLOY_ENABLED || 'false' }}
+      TF_CLOUD_ORGANIZATION: ${{ vars.TF_CLOUD_ORGANIZATION }}
+      TF_WORKSPACE_AUTH: ${{ vars.TF_WORKSPACE_AUTH }}
+      TF_WORKSPACE_OBSERVABILITY: ${{ vars.TF_WORKSPACE_OBSERVABILITY }}
     steps:
       - name: Deployment gate
         run: |
@@ -58,15 +61,22 @@ jobs:
           APP_SERVERLESS_JWT_PUBLIC_KEY: ${{ secrets.SERVERLESS_JWT_PUBLIC_KEY }}
           NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
           NOTIFICATION_API_KEY: ${{ secrets.NOTIFICATION_API_KEY }}
+          TF_API_TOKEN: ${{ secrets.TF_API_TOKEN }}
+          GITHUB_SYNC_TOKEN: ${{ secrets.GITHUB_SYNC_TOKEN }}
+          SYNC_APP_CLIENT_ID: ${{ vars.SYNC_APP_CLIENT_ID }}
+          SYNC_APP_PRIVATE_KEY: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           missing=()
-          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN APP_DB_PASSWORD APP_JWT_SECRET APP_ADMIN_PASSWORD APP_SERVERLESS_JWT_PUBLIC_KEY; do
+          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN APP_DB_PASSWORD APP_JWT_SECRET APP_ADMIN_PASSWORD APP_SERVERLESS_JWT_PUBLIC_KEY TF_API_TOKEN; do
             if [ -z "${!name:-}" ]; then missing+=("$name"); fi
           done
-          for name in EKS_CLUSTER_NAME APP_DB_URL APP_DB_USER AUTH_BASE_URL; do
+          for name in EKS_CLUSTER_NAME APP_DB_URL APP_DB_USER AUTH_BASE_URL TF_CLOUD_ORGANIZATION TF_WORKSPACE_AUTH TF_WORKSPACE_OBSERVABILITY; do
             if [ -z "${!name:-}" ]; then missing+=("$name"); fi
           done
+          if [ -z "$GITHUB_SYNC_TOKEN" ] && { [ -z "$SYNC_APP_CLIENT_ID" ] || [ -z "$SYNC_APP_PRIVATE_KEY" ]; }; then
+            missing+=("GITHUB_SYNC_TOKEN ou SYNC_APP_CLIENT_ID+SYNC_APP_PRIVATE_KEY")
+          fi
           if [ "${NEW_RELIC_ENABLED,,}" = "true" ] && [ -z "$NEW_RELIC_LICENSE_KEY" ]; then
             missing+=("NEW_RELIC_LICENSE_KEY")
           fi
@@ -197,6 +207,55 @@ jobs:
             --image=curlimages/curl:8.10.1 --restart=Never --rm -i --quiet \
             --command -- curl -fsS http://oficina-app/actuator/health/readiness
 
+      - name: Capture public Backend URL
+        if: env.DEPLOY_ENABLED == 'true'
+        id: backend-url
+        env:
+          TARGET_NS: ${{ inputs.namespace }}
+        run: |
+          set -euo pipefail
+          backend_host=''
+          for attempt in $(seq 1 30); do
+            backend_host="$(kubectl get service oficina-app -n "$TARGET_NS" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+            if [ -z "$backend_host" ]; then
+              backend_host="$(kubectl get service oficina-app -n "$TARGET_NS" -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+            fi
+            if [ -n "$backend_host" ]; then break; fi
+            echo "Aguardando LoadBalancer público (${attempt}/30)..."
+            sleep 10
+          done
+          if [ -z "$backend_host" ]; then
+            echo '::error::O Service oficina-app não recebeu hostname ou IP público.'
+            exit 1
+          fi
+          echo "value=http://${backend_host}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate GitHub App synchronization token
+        if: env.DEPLOY_ENABLED == 'true' && vars.SYNC_APP_CLIENT_ID != ''
+        id: sync-app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.SYNC_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SYNC_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: oficina-backend-fiap-fase3,oficina-kubernetes-infra-fiap-fase3
+
+      - name: Synchronize Backend URL with Auth and New Relic
+        if: env.DEPLOY_ENABLED == 'true'
+        env:
+          BACKEND_URL: ${{ steps.backend-url.outputs.value }}
+          TF_API_TOKEN: ${{ secrets.TF_API_TOKEN }}
+          GITHUB_SYNC_TOKEN: ${{ steps.sync-app-token.outputs.token || secrets.GITHUB_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 scripts/sync-backend-outputs.py \
+            --backend-url "$BACKEND_URL" \
+            --organization "$TF_CLOUD_ORGANIZATION" \
+            --auth-workspace "$TF_WORKSPACE_AUTH" \
+            --newrelic-workspace "$TF_WORKSPACE_OBSERVABILITY" \
+            --environment '${{ inputs.environment }}'
+          echo "- URL pública sincronizada com Auth e New Relic" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Collect diagnostics on failure
         if: env.DEPLOY_ENABLED == 'true' && failure() && steps.cluster.outcome == 'success'
         run: |
@@ -211,5 +270,6 @@ jobs:
             echo "- Namespace: \`${{ inputs.namespace }}\`"
             echo "- Imagem: \`${{ inputs.image_ref }}\`"
             echo "- New Relic: \`${NEW_RELIC_ENABLED}\`"
+            echo "- sequência: validação → build → deploy → smoke test → sincronização"
           } >> "$GITHUB_STEP_SUMMARY"
           kubectl get pods,svc,hpa -n "${{ inputs.namespace }}"
