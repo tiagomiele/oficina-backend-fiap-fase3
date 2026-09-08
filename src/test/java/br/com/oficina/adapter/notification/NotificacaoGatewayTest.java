@@ -17,9 +17,11 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.http.HttpMethod;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
@@ -69,7 +71,11 @@ class NotificacaoGatewayTest {
         .andRespond(withSuccess());
     ServerlessNotificacaoGateway gateway =
         new ServerlessNotificacaoGateway(
-            builder, observabilidade, "https://notifications.example.com", "secret-key");
+            builder
+                .baseUrl("https://notifications.example.com")
+                .defaultHeader("X-Notification-Key", "secret-key")
+                .build(),
+            observabilidade);
 
     gateway.enviar("cliente@example.com", "OS 2026-000001", "Status atualizado");
 
@@ -86,7 +92,11 @@ class NotificacaoGatewayTest {
         .andRespond(withServerError());
     ServerlessNotificacaoGateway gateway =
         new ServerlessNotificacaoGateway(
-            builder, observabilidade, "https://notifications.example.com", "secret-key");
+            builder
+                .baseUrl("https://notifications.example.com")
+                .defaultHeader("X-Notification-Key", "secret-key")
+                .build(),
+            observabilidade);
 
     gateway.enviar("cliente@example.com", "OS 2026-000001", "Status atualizado");
 
@@ -94,6 +104,16 @@ class NotificacaoGatewayTest {
         .integracaoExternaFalhou(
             "serverless-notification", "enfileirar-notificacao", "InternalServerError");
     server.verify();
+  }
+
+  @Test
+  void notificacaoServerlessNaoBloqueiaFluxoPrincipal() throws NoSuchMethodException {
+    assertThat(
+            AnnotatedElementUtils.findMergedAnnotation(
+                ServerlessNotificacaoGateway.class.getMethod(
+                    "enviar", String.class, String.class, String.class),
+                Async.class))
+        .isNotNull();
   }
 
   @Test
