@@ -5,6 +5,7 @@ import br.com.oficina.usecase.gateway.ObservabilidadeGateway;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
@@ -24,6 +25,7 @@ public class ServerlessNotificacaoGateway implements NotificacaoGateway {
   private final RestClient client;
   private final ObservabilidadeGateway observabilidade;
 
+  @Autowired
   public ServerlessNotificacaoGateway(
       RestClient.Builder builder,
       ObservabilidadeGateway observabilidade,

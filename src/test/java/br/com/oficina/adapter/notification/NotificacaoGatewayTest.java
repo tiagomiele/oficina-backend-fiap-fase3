@@ -11,12 +11,15 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import br.com.oficina.usecase.gateway.NotificacaoGateway;
 import br.com.oficina.usecase.gateway.ObservabilidadeGateway;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.convert.ApplicationConversionService;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.http.HttpMethod;
 import org.springframework.mail.MailSendException;
@@ -114,6 +117,24 @@ class NotificacaoGatewayTest {
                     "enviar", String.class, String.class, String.class),
                 Async.class))
         .isNotNull();
+  }
+
+  @Test
+  void contextoServerlessInstanciaGatewayComConstrutorDeProducao() {
+    new ApplicationContextRunner()
+        .withInitializer(
+            context ->
+                context
+                    .getBeanFactory()
+                    .setConversionService(ApplicationConversionService.getSharedInstance()))
+        .withBean(RestClient.Builder.class, RestClient::builder)
+        .withBean(ObservabilidadeGateway.class, () -> mock(ObservabilidadeGateway.class))
+        .withPropertyValues(
+            "oficina.notificacao.tipo=serverless",
+            "oficina.notificacao.serverless.endpoint=https://notifications.example.com",
+            "oficina.notificacao.serverless.api-key=secret-key")
+        .withUserConfiguration(ServerlessNotificacaoGateway.class)
+        .run(context -> assertThat(context).hasSingleBean(NotificacaoGateway.class));
   }
 
   @Test
